@@ -14,7 +14,7 @@ from texttable import Texttable
 from elastalert.util import EAException, lookup_es_key
 from elastalert.yaml import read_yaml
 
-from collections import Counter
+from collections import defaultdict, Counter
 
 class DateTimeEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -263,30 +263,32 @@ class Alerter(object):
             )
 
             # Prepare match_aggregation used in both table types
-            match_aggregation = {}
+            match_aggregation = defaultdict(int)
 
             # Maintain an aggregate count for each unique key encountered in the aggregation period
             for match in matches:
                 key_tuple = tuple([str(lookup_es_key(match, key)) for key in summary_table_fields])
-                if key_tuple not in match_aggregation:
-                    match_aggregation[key_tuple] = 1
-                else:
-                    match_aggregation[key_tuple] = match_aggregation[key_tuple] + 1
+                match_aggregation[key_tuple] += 1
 
             # Limit number of rows
             if 'summary_table_max_rows' in self.rule:
                 max_rows = self.rule['summary_table_max_rows']
-                match_aggregation = {k:v for k, v in Counter(match_aggregation).most_common(max_rows)}
+                match_aggregation = {k: v for k, v in Counter(match_aggregation).most_common(max_rows)}
+            else:
+                # For consistent API, treat like dict
+                match_aggregation = dict(match_aggregation)
 
             # Type dependent table style
             if summary_table_type == 'ascii':
-                text_table = Texttable(max_width=self.get_aggregation_summary_text__maximum_width())
+                max_width = self.get_aggregation_summary_text__maximum_width()
+                text_table = Texttable(max_width=max_width)
                 text_table.header(summary_table_fields_with_count)
                 # Format all fields as 'text' to avoid long numbers being shown as scientific notation
-                text_table.set_cols_dtype(['t' for i in summary_table_fields_with_count])
+                dtype_list = ['t'] * len(summary_table_fields_with_count)
+                text_table.set_cols_dtype(dtype_list)
 
                 for keys, count in match_aggregation.items():
-                    text_table.add_row([key for key in keys] + [count])
+                    text_table.add_row([*keys, count])
                 text += text_table.draw() + '\n\n'
 
             elif summary_table_type == 'markdown':
@@ -297,10 +299,8 @@ class Alerter(object):
                 text += '|-----' * len(summary_table_fields_with_count) + '|\n'
                 # Create table row
                 for keys, count in match_aggregation.items():
-                    markdown_row = ""
-                    for key in keys:
-                        markdown_row += '| ' + str(key) + ' '
-                    text += markdown_row + '| ' + str(count) + ' |\n'
+                    markdown_row = '| ' + ' | '.join(str(key) for key in keys) + ' | ' + str(count) + ' |\n'
+                    text += markdown_row
                 text += '\n'
             
             elif summary_table_type == 'html':
@@ -316,7 +316,7 @@ class Alerter(object):
                 text_table.header = True
                 text_table.format = True
                 for keys, count in match_aggregation.items():
-                    text_table.add_row([key for key in keys] + [count])
+                    text_table.add_row([*keys, count])
                 text = text_table.get_html_string()
 
             # max_rows message
