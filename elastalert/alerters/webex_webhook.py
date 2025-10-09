@@ -19,6 +19,11 @@ class WebexWebhookAlerter(Alerter):
         )
         self.webex_webhook_url = f"https://webexapis.com/v1/webhooks/incoming/{self.webex_webhook_id}"
         self.webex_webhook_msgtype = self.rule.get("webex_webhook_msgtype", "text")
+        self._info = {
+            "type": "webex_webhook",
+            "webex_webhook_msgtype": self.webex_webhook_msgtype,
+            "webex_webhook_url": self.webex_webhook_url,
+        }
 
     def alert(self, matches):
         body = self.create_alert_body(matches)
@@ -47,8 +52,4 @@ class WebexWebhookAlerter(Alerter):
         elastalert_logger.info("Trigger sent to webex_webhook")
 
     def get_info(self):
-        return {
-            "type": "webex_webhook",
-            "webex_webhook_msgtype": self.webex_webhook_msgtype,
-            "webex_webhook_url": self.webex_webhook_url,
-        }
+        return self._info
