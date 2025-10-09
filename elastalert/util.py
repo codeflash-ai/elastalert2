@@ -41,7 +41,9 @@ def new_get_event_ts(ts_field):
     :returns: A callable function that takes an event and outputs that event's
     timestamp field.
     """
-    return lambda event: lookup_es_key(event[0], ts_field)
+    def event_ts(event):
+        return lookup_es_key(event[0], ts_field)
+    return event_ts
 
 
 def _find_es_dict_by_key(lookup_dict: dict, term: str, string_multi_field_name: str = "keyword") -> tuple[dict, str]:
@@ -174,8 +176,8 @@ def dt_to_ts_with_format(dt, ts_format):
 
 
 def ts_now():
-    now = datetime.datetime.now(tz=datetime.UTC)
-    return now.replace(tzinfo=dateutil.tz.tzutc())
+    now = datetime.datetime.now(tz=dateutil.tz.tzutc())
+    return now
 
 
 def ts_utc_to_tz(ts, tz_name):
@@ -263,8 +265,8 @@ def total_seconds(dt):
 
 
 def dt_to_int(dt):
-    dt = dt.replace(tzinfo=datetime.UTC)
-    return int(total_seconds((dt - datetime.datetime.fromtimestamp(0, tz=datetime.UTC))) * 1000)
+    dt = dt.replace(tzinfo=dateutil.tz.tzutc())
+    return int(total_seconds((dt - datetime.datetime.fromtimestamp(0, tz=dateutil.tz.tzutc()))) * 1000)
 
 
 def unixms_to_dt(ts):
@@ -272,8 +274,7 @@ def unixms_to_dt(ts):
 
 
 def unix_to_dt(ts):
-    dt = datetime.datetime.fromtimestamp(float(ts), tz=datetime.UTC)
-    dt = dt.replace(tzinfo=dateutil.tz.tzutc())
+    dt = datetime.datetime.fromtimestamp(float(ts), tz=dateutil.tz.tzutc())
     return dt
 
 
@@ -342,7 +343,7 @@ def build_es_conn_config(conf):
     with properly initialized values for 'es_host', 'es_port', 'use_ssl' and 'http_auth' which
     will be a basicauth username:password formatted string """
     parsed_conf = {}
-    parsed_conf['use_ssl'] = os.environ.get('ES_USE_SSL', False)
+    parsed_conf['use_ssl'] = os.environ.get('ES_USE_SSL', '0') == '1'
     parsed_conf['verify_certs'] = True
     parsed_conf['ca_certs'] = None
     parsed_conf['client_cert'] = None
@@ -429,7 +430,8 @@ def parse_duration(value):
 def parse_deadline(value):
     """Convert ``unit=num`` spec into a ``datetime`` object."""
     duration = parse_duration(value)
-    return ts_now() + duration
+    now = datetime.datetime.now(tz=dateutil.tz.tzlocal())
+    return now + duration
 
 
 def flatten_dict(dct, delim='.', prefix=''):
