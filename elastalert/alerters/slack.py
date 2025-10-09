@@ -50,6 +50,8 @@ class SlackAlerter(Alerter):
         self.slack_attach_jira_ticket_url = self.rule.get('slack_attach_jira_ticket_url', False)
         self.slack_jira_ticket_color = self.rule.get('slack_jira_ticket_color', '#ec4b98')
         self.slack_jira_ticket_title = self.rule.get('slack_jira_ticket_title', 'Jira Ticket')
+        self._info_dict = {'type': 'slack',
+                          'slack_username_override': self.slack_username_override}
 
     def format_body(self, body):
         # https://api.slack.com/docs/formatting
@@ -184,5 +186,4 @@ class SlackAlerter(Alerter):
         elastalert_logger.info("Alert '%s' sent to Slack" % self.rule['name'])
 
     def get_info(self):
-        return {'type': 'slack',
-                'slack_username_override': self.slack_username_override}
+        return self._info_dict
