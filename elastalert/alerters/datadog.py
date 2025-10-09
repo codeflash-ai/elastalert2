@@ -15,6 +15,7 @@ class DatadogAlerter(Alerter):
         super(DatadogAlerter, self).__init__(rule)
         self.dd_api_key = self.rule.get('datadog_api_key', None)
         self.dd_app_key = self.rule.get('datadog_app_key', None)
+        self._info = {'type': 'datadog'}
 
     def alert(self, matches):
         url = 'https://api.datadoghq.com/api/v1/events'
@@ -35,4 +36,4 @@ class DatadogAlerter(Alerter):
         elastalert_logger.info('Alert sent to Datadog')
 
     def get_info(self):
-        return {'type': 'datadog'}
+        return self._info
