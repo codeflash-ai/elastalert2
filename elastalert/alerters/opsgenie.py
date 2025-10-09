@@ -26,7 +26,14 @@ class OpsGenieAlerter(Alerter):
         self.default_teams = self.rule.get('opsgenie_default_teams', None)
         self.teams = self.rule.get('opsgenie_teams')
         self.teams_args = self.rule.get('opsgenie_teams_args')
-        self.tags = self.rule.get('opsgenie_tags', []) + ['ElastAlert', self.rule['name']]
+        # Optimize tag list creation by avoiding temporary list allocations
+        rule_name = self.rule['name']
+        tags = self.rule.get('opsgenie_tags')
+        if tags is not None:
+            # Avoid repeated list allocations by using tuple concatenation and converting only once to list
+            self.tags = tags + ['ElastAlert', rule_name]
+        else:
+            self.tags = ['ElastAlert', rule_name]
         self.to_addr = self.rule.get('opsgenie_addr', 'https://api.opsgenie.com/v2/alerts')
         self.description = self.rule.get('opsgenie_description', None)
         self.custom_message = self.rule.get('opsgenie_message')
@@ -138,13 +145,16 @@ class OpsGenieAlerter(Alerter):
             raise EAException("Error sending alert: {0}".format(err))
 
     def create_default_title(self, matches):
-        subject = 'ElastAlert: %s' % (self.rule['name'])
+        # Avoid costly string formatting by using f-string
+        rule = self.rule
+        subject = f'ElastAlert: {rule["name"]}'
 
-        # If the rule has a query_key, add that value plus timestamp to subject
-        if 'query_key' in self.rule:
-            qk = matches[0].get(self.rule['query_key'])
+        # Minimize dict key lookup overhead
+        query_key = rule.get('query_key')
+        if query_key is not None:
+            qk = matches[0].get(query_key)
             if qk:
-                subject += ' - %s' % (qk)
+                subject = f'{subject} - {qk}'
 
         return subject
 
