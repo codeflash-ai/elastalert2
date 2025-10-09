@@ -30,6 +30,4 @@ def create_opensearch_external_url_formatter(
 ) -> OpensearchExternalUrlFormatter:
     '''Creates a Opensearch external url formatter'''
 
-    base_url = rule.get('opensearch_url')
-
-    return AbsoluteOpensearchExternalUrlFormatter(base_url)
+    return AbsoluteOpensearchExternalUrlFormatter(rule.get('opensearch_url'))
