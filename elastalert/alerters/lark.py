@@ -16,6 +16,11 @@ class LarkAlerter(Alerter):
         self.lark_bot_id = self.rule.get('lark_bot_id', None)
         self.lark_webhook_url = f'https://open.feishu.cn/open-apis/bot/v2/hook/{self.lark_bot_id}'
         self.lark_msg_type = self.rule.get('lark_msgtype', 'text')
+        # Cache static payload for get_info for improved efficiency
+        self._info = {
+            "type": "lark",
+            "lark_webhook_url": self.lark_webhook_url
+        }
 
     def alert(self, matches):
         title = self.create_title(matches)
@@ -47,7 +52,4 @@ class LarkAlerter(Alerter):
         elastalert_logger.info("Trigger sent to lark")
 
     def get_info(self):
-        return {
-            "type": "lark",
-            "lark_webhook_url": self.lark_webhook_url
-        }
+        return self._info
