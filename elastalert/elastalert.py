@@ -6,7 +6,6 @@ import json
 import logging
 import os
 import random
-import re
 import signal
 import sys
 import threading
@@ -489,7 +488,7 @@ class ElastAlerter(object):
         # Split on comma followed by zero or more whitespace characters. It's
         # expected to be commaspace separated. However 76ab593 suggests there
         # are cases when it is only comma and not commaspace
-        qk_values = re.split(r',\s*',qk_value_csv)
+        qk_values = [v.strip() for v in qk_value_csv.split(',')]
         end = '.keyword'
 
         query_keys = []
