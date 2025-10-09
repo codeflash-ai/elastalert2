@@ -22,10 +22,12 @@ class HiveAlerter(Alerter):
         First checks any fields found in the match provided, then any fields defined in
         the rule, finally returning the default value provided if no value can be found.
         """
+        # Inline fast path for direct key lookup to avoid unnecessary function calls
+        if field_name in match:
+            return match[field_name]
         field_value = lookup_es_key(match, field_name)
         if field_value is None:
             field_value = self.rule.get(field_name, default)
-
         return field_value
 
     # Iterate through the matches, building up a list of observables
@@ -79,19 +81,24 @@ class HiveAlerter(Alerter):
         return tag_values
 
     def load_args(self, field, raw, match: dict):
-        missing = self.rule['hive_alert_config'].get(field + '_missing_value', '<MISSING VALUE>')
+        # Hold references to avoid multiple dict lookups
+        hive_cfg = self.rule['hive_alert_config']
+        missing = hive_cfg.get(field + '_missing_value', '<MISSING VALUE>')
         args = field + "_args"
-        if args in self.rule.get('hive_alert_config'):
-            process_args = self.rule['hive_alert_config'].get(args)
-            process_values=[]
-            for arg in process_args:
-                process_values.append(self.lookup_field(match, arg, missing))
-            for i, text_value in enumerate(process_values):
-                if text_value is None:
-                    process_value = self.rule.get(process_args[i])
-                    if process_value:
-                        process_values[i] = process_value
-            process_values = [missing if val is None else val for val in process_values]
+        args_list = hive_cfg.get(args)
+        if args_list is not None:
+            # Pre-size process_values for better memory use if large lists
+            process_values = [self.lookup_field(match, arg, missing) for arg in args_list]
+            # Optimize by checking for None only when actually needed
+            if any(val is None for val in process_values):
+                for i, text_value in enumerate(process_values):
+                    if text_value is None:
+                        process_value = self.rule.get(args_list[i])
+                        if process_value:
+                            process_values[i] = process_value
+            # Only invoke missing replacement if any None values remain
+            if any(val is None for val in process_values):
+                process_values = [missing if val is None else val for val in process_values]
             raw = raw.format(*process_values)
             return raw
         else:
