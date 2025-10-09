@@ -14,16 +14,18 @@ class MatrixHookshotAlerter(Alerter):
 
     def __init__(self, rule):
         super(MatrixHookshotAlerter, self).__init__(rule)
-        self.matrixhookshot_webhook_url = self.rule.get('matrixhookshot_webhook_url', None)
-        if isinstance(self.matrixhookshot_webhook_url, str):
-            self.matrixhookshot_webhook_url = [self.matrixhookshot_webhook_url]
-        self.matrixhookshot_proxy = self.rule.get('matrixhookshot_proxy', None)
-        self.matrixhookshot_username = self.rule.get('matrixhookshot_username', '')
-        self.matrixhookshot_text = self.rule.get('matrixhookshot_text', '')
-        self.matrixhookshot_html = self.rule.get('matrixhookshot_html', '')
-        self.matrixhookshot_ignore_ssl_errors = self.rule.get('matrixhookshot_ignore_ssl_errors', False)
-        self.matrixhookshot_timeout = self.rule.get('matrixhookshot_timeout', 10)
-        self.matrixhookshot_ca_certs = self.rule.get('matrixhookshot_ca_certs')
+        url = rule.get('matrixhookshot_webhook_url')
+        if isinstance(url, str):
+            self.matrixhookshot_webhook_url = [url]
+        else:
+            self.matrixhookshot_webhook_url = url
+        self.matrixhookshot_proxy = rule.get('matrixhookshot_proxy')
+        self.matrixhookshot_username = rule.get('matrixhookshot_username', '')
+        self.matrixhookshot_text = rule.get('matrixhookshot_text', '')
+        self.matrixhookshot_html = rule.get('matrixhookshot_html', '')
+        self.matrixhookshot_ignore_ssl_errors = rule.get('matrixhookshot_ignore_ssl_errors', False)
+        self.matrixhookshot_timeout = rule.get('matrixhookshot_timeout', 10)
+        self.matrixhookshot_ca_certs = rule.get('matrixhookshot_ca_certs')
 
     def format_body(self, body):
         # https://matrix-org.github.io/matrix-hookshot/latest/setup/webhooks.html
