@@ -31,22 +31,18 @@ class HiveAlerter(Alerter):
     # Iterate through the matches, building up a list of observables
     def load_observable_artifacts(self, match: dict):
         artifacts = []
-        for mapping in self.rule.get('hive_observable_data_mapping', []):
+        hive_observable_data_mapping = self.rule.get('hive_observable_data_mapping', [])
+        
+        for mapping in hive_observable_data_mapping:
             for observable_type, mapping_key in mapping.items():
-                if (observable_type != "tlp" and observable_type != "message" and observable_type != "tags"):
+                if observable_type not in {"tlp", "message", "tags"}:
                     data = str(self.lookup_field(match, mapping_key, ''))
                     if len(data) != 0:
-                        artifact = {'tlp': 2,
-                                    'tags': [],
-                                    'message': None,
+                        artifact = {'tlp': mapping.get('tlp', 2),
+                                    'tags': mapping.get('tags', []),
+                                    'message': mapping.get('message', None),
                                     'dataType': observable_type,
                                     'data': data}
-                        if mapping.get('tlp') is not None:
-                            artifact['tlp'] = mapping['tlp']
-                        if mapping.get('message') is not None:
-                            artifact['message'] = mapping['message']
-                        if mapping.get('tags') is not None:
-                            artifact['tags'] = mapping['tags']
                         artifacts.append(artifact)
                 break
         return artifacts
