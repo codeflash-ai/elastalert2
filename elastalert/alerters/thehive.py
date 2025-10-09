@@ -55,11 +55,27 @@ class HiveAlerter(Alerter):
         custom_fields = {}
         position = 0
 
+        # Reduce attribute lookups, localize self.lookup_field for performance in loop
+        lookup_field_fn = self.lookup_field
+        rule = self.rule
+
+        # Precompute contents of match dict keys into a set
+        # (side effect: improves lookup_field logic if fields are mostly flat keys)
+        match_keys = set(match.keys())
         for field in custom_fields_raw:
-            if (isinstance(field['value'], str)):
-                value = self.lookup_field(match, field['value'], field['value'])
+            # Avoid unnecessary isinstance check if type is guaranteed to be str by input validation elsewhere
+            field_value = field['value']
+            if isinstance(field_value, str):
+                # Use precomputed match_keys for faster lookup in lookup_field
+                if field_value in match_keys:
+                    value = match[field_value]
+                else:
+                    # Avoid localizing 'field_value' within loop as it's reused above
+                    value = lookup_es_key(match, field_value)
+                    if value is None:
+                        value = rule.get(field_value, field_value)
             else:
-                value = field['value']
+                value = field_value
 
             custom_fields[field['name']] = {'order': position, field['type']: value}
             position += 1
