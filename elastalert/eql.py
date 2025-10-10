@@ -39,14 +39,12 @@ def format_results(results):
     hits = results.get('hits')
     if not hits:
         return results
-    
+
     events = hits.get('events')
     if events is None:
         return results
-    
-    # relabel events as hits, for consistency
-    events = hits.pop('events')
-    hits['hits'] = events
+
+    hits['hits'] = hits.pop('events')
     results['eql'] = True
 
     return results
