@@ -13,8 +13,10 @@ class IrisAlerter(Alerter):
 
     def __init__(self, rule):
         super(IrisAlerter, self).__init__(rule)
-        self.url = f"https://{self.rule.get('iris_host')}"
-        self.api_token = self.rule.get('iris_api_token')
+        iris_host = self.rule.get('iris_host')
+        iris_api_token = self.rule.get('iris_api_token')
+        self.url = f"https://{iris_host}"
+        self.api_token = iris_api_token
         self.customer_id = self.rule.get('iris_customer_id', 1)
         self.ca_cert = self.rule.get('iris_ca_cert')
         self.ignore_ssl_errors = self.rule.get('iris_ignore_ssl_errors', False)
@@ -24,7 +26,7 @@ class IrisAlerter(Alerter):
         self.case_template_id = self.rule.get('iris_case_template_id', None)
         self.headers = {
             'Content-Type': 'application/json',
-            'Authorization': f'Bearer {self.rule.get("iris_api_token")}'
+            'Authorization': f'Bearer {iris_api_token}'
         }
         self.alert_note = self.rule.get('iris_alert_note', None)
         self.alert_source = self.rule.get('iris_alert_source', 'ElastAlert2')
@@ -34,6 +36,11 @@ class IrisAlerter(Alerter):
         self.alert_severity_id = self.rule.get('iris_alert_severity_id', 1)
         self.alert_context = self.rule.get('iris_alert_context', None)
         self.iocs = self.rule.get('iris_iocs', None)
+        # Cache get_info result for performance
+        self._info = {
+            'type': 'IrisAlerter',
+            'iris_api_endpoint': self.url
+        }
 
     def lookup_field(self, match: dict, field_name: str, default):
         """Populates a field with values depending on the contents of the Elastalert match
@@ -206,7 +213,4 @@ class IrisAlerter(Alerter):
             elastalert_logger.info('Case successfully created in Iris')
 
     def get_info(self):
-        return {
-            'type': 'IrisAlerter',
-            'iris_api_endpoint': self.url
-        }
+        return self._info
