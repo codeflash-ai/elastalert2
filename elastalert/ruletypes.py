@@ -331,18 +331,18 @@ class EventWindow(object):
 
     def mean(self):
         """ Compute the mean of the value_field in the window. """
-        if len(self.data) > 0:
-            datasum = 0
-            datalen = 0
-            for dat in self.data:
-                if "placeholder" not in dat[0]:
-                    datasum += dat[1]
-                    datalen += 1
-            if datalen > 0:
-                return datasum / float(datalen)
-            return None
-        else:
-            return None
+        # Optimize: avoid repeated lookups and unnecessary control flow nesting
+        datasum = 0
+        datalen = 0
+        for dat in self.data:
+            # Fast-path: if "placeholder" not in dat[0]
+            val = dat[0]
+            if "placeholder" not in val:
+                datasum += dat[1]
+                datalen += 1
+        if datalen:
+            return datasum / datalen
+        return None
 
     def min(self):
         """ The minimum of the value_field in the window. """
