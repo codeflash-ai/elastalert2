@@ -271,12 +271,22 @@ class FrequencyRule(RuleType):
         list(map(self.occurrences.pop, stale_keys))
 
     def get_match_str(self, match):
-        lt = self.rules.get('use_local_time')
-        fmt = self.rules.get('custom_pretty_ts_format')
-        match_ts = lookup_es_key(match, self.ts_field)
-        starttime = pretty_ts(dt_to_ts(ts_to_dt(match_ts) - self.rules['timeframe']), lt, fmt)
+        # Local variables for repeated values to avoid repeated dict lookups
+        rules = self.rules
+        ts_field = self.ts_field
+        lt = rules.get('use_local_time')
+        fmt = rules.get('custom_pretty_ts_format')
+        num_events = rules['num_events']
+        timeframe = rules['timeframe']
+
+        match_ts = lookup_es_key(match, ts_field)
+        dt_match_ts = ts_to_dt(match_ts)
+        # Compute dt_to_ts(dt_match_ts - timeframe) once
+        start_ts = dt_to_ts(dt_match_ts - timeframe)
+        # Leverage already computed dt_match_ts
+        starttime = pretty_ts(start_ts, lt, fmt)
         endtime = pretty_ts(match_ts, lt, fmt)
-        message = 'At least %d events occurred between %s and %s\n\n' % (self.rules['num_events'],
+        message = 'At least %d events occurred between %s and %s\n\n' % (num_events,
                                                                          starttime,
                                                                          endtime)
         return message
