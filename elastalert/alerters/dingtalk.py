@@ -13,6 +13,14 @@ from requests.auth import HTTPProxyAuth
 from elastalert.alerts import Alerter, DateTimeEncoder
 from elastalert.util import EAException, elastalert_logger
 
+_base64_b64encode = base64.b64encode
+
+_hmac_new = hmac.new
+
+_hashlib_sha256 = hashlib.sha256
+
+_urllib_parse_quote_plus = urllib.parse.quote_plus
+
 
 class DingTalkAlerter(Alerter):
     """ Creates a DingTalk room message for each alert """
@@ -35,11 +43,15 @@ class DingTalkAlerter(Alerter):
     def sign(self):
         timestamp = str(round(time.time() * 1000))
         secret = self.dingtalk_sign
+        # Use f-string for fastest formatting, and code lookup caches
+        # The following avoids re-binding names and uses local variables for faster lookups
         secret_enc = secret.encode('utf-8')
-        string_to_sign = '{}\n{}'.format(timestamp, secret)
+        string_to_sign = f"{timestamp}\n{secret}"
         string_to_sign_enc = string_to_sign.encode('utf-8')
-        hmac_code = hmac.new(secret_enc, string_to_sign_enc, digestmod=hashlib.sha256).digest()
-        sign = urllib.parse.quote_plus(base64.b64encode(hmac_code))
+        # Use pre-cached function lookups
+        hmac_code = _hmac_new(secret_enc, string_to_sign_enc, digestmod=_hashlib_sha256).digest()
+        # base64.b64encode returns bytes; quote_plus expects bytes and returns str
+        sign = _urllib_parse_quote_plus(_base64_b64encode(hmac_code))
         return timestamp, sign
 
     def alert(self, matches):
