@@ -10,19 +10,26 @@ from elastalert.auth import RefeshableAWSRequestsAuth
 from elastalert.util import EAException
 
 def append_security_tenant(url, security_tenant):
-    '''Appends the security_tenant query string parameter to the url'''
+    """Appends the security_tenant query string parameter to the url"""
     parsed = urlsplit(url)
-
-    if parsed.query:
-        qs = parse_qsl(parsed.query, keep_blank_values=True, strict_parsing=True)
+    # Fast path: no query string at all
+    if not parsed.query:
+        # Avoid parse_qsl, urlencode overhead if not needed
+        new_query = f"security_tenant={urlencode({'': security_tenant})[1:] if security_tenant else ''}"
     else:
-        qs = []
-    qs.append(('security_tenant', security_tenant))
-
-    new_query = urlencode(qs)
-    new_args = parsed._replace(query=new_query)
-    new_url = urlunsplit(new_args)
-    return new_url
+        # Avoid parse_qsl in the common case: just append
+        # But strict_parsing=True may raise ValueError if invalid, keep this behavior
+        qs = parse_qsl(parsed.query, keep_blank_values=True, strict_parsing=True)
+        qs.append(('security_tenant', security_tenant))
+        new_query = urlencode(qs)
+    # _replace returns new object, but to avoid repeated tuple creation in urlunsplit, build a tuple directly
+    return urlunsplit((
+        parsed.scheme,
+        parsed.netloc,
+        parsed.path,
+        parsed.query if not parsed.query and not security_tenant else new_query,
+        parsed.fragment,
+    ))
 
 class KibanaExternalUrlFormatter:
     '''Interface for formatting external Kibana urls'''
@@ -38,6 +45,7 @@ class AbsoluteKibanaExternalUrlFormatter(KibanaExternalUrlFormatter):
         self.security_tenant = security_tenant
 
     def format(self, relative_url: str) -> str:
+        # urljoin is fast and the only path manipulation here
         url = urljoin(self.base_url, relative_url)
         if self.security_tenant:
             url = append_security_tenant(url, self.security_tenant)
