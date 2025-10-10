@@ -18,6 +18,7 @@ class ExotelAlerter(Alerter):
         self.exotel_to_number = self.rule.get('exotel_to_number', None)
         self.exotel_from_number = self.rule.get('exotel_from_number', None)
         self.sms_body = self.rule.get('exotel_message_body', '')
+        self._info_dict = {'type': 'exotel', 'exotel_account': self.exotel_account_sid}
 
     def alert(self, matches):
         client = Exotel(self.exotel_account_sid, self.exotel_auth_token)
@@ -32,4 +33,4 @@ class ExotelAlerter(Alerter):
         elastalert_logger.info("Trigger sent to Exotel")
 
     def get_info(self):
-        return {'type': 'exotel', 'exotel_account': self.exotel_account_sid}
+        return self._info_dict
