@@ -16,6 +16,8 @@ class PagerTreeAlerter(Alerter):
         super(PagerTreeAlerter, self).__init__(rule)
         self.url = self.rule.get('pagertree_integration_url', None)
         self.pagertree_proxy = self.rule.get('pagertree_proxy', None)
+        self._info_dict = {'type': 'pagertree',
+                           'pagertree_integration_url': self.url}
 
     def alert(self, matches):
         # post to pagertree
@@ -37,5 +39,4 @@ class PagerTreeAlerter(Alerter):
         elastalert_logger.info("Trigger sent to PagerTree")
 
     def get_info(self):
-        return {'type': 'pagertree',
-                'pagertree_integration_url': self.url}
+        return self._info_dict
