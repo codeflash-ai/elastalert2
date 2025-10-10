@@ -63,13 +63,21 @@ class IrisAlerter(Alerter):
         return alert_context
 
     def make_iocs_records(self, matches):
+        # Optimize by using local variable/lookups and minimize .copy() calls
         iocs = []
-        for record in self.iocs:
-            # Duplicating match record data so we can update the ioc_value without overwriting record
-            record_data = record.copy()
-            record_data['ioc_value'] = lookup_es_key(matches[0], record['ioc_value'])
-            if record_data['ioc_value'] is not None:
-                iocs.append(record_data)
+        iocs_list = self.iocs
+        # Prepare variables for loop to avoid attribute lookups
+        match0 = matches[0]
+        append = iocs.append
+        if iocs_list:
+            for record in iocs_list:
+                # Do a fast, minimal copy and update just the required field
+                # Direct get/set on dict is okay because .copy() is shallow (assuming record is flat dict)
+                val = lookup_es_key(match0, record['ioc_value'])
+                if val is not None:
+                    record_data = record.copy()
+                    record_data['ioc_value'] = val
+                    append(record_data)
         return iocs
 
     def make_alert(self, matches):
@@ -116,21 +124,18 @@ class IrisAlerter(Alerter):
         return alert_data
 
     def make_case(self, matches):
-        iocs = []
+        # Only call make_iocs_records if self.iocs is truthy
         case_data = {
             "case_soc_id": f"SOC_{str(uuid.uuid4())[0:6]}",
             "case_customer": self.customer_id,
             "case_name": self.rule.get('name'),
             "case_description": self.description
         }
-
-        if self.iocs:
-            iocs = self.make_iocs_records(matches)
+        # Move check outside for slight improvement
+        iocs = self.make_iocs_records(matches) if self.iocs else []
 
         if self.case_template_id:
-            case_data.update(
-                {"case_template_id": self.case_template_id}
-            )
+            case_data["case_template_id"] = self.case_template_id
 
         return case_data, iocs
     
