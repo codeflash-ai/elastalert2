@@ -13,15 +13,21 @@ class GoogleChatAlerter(Alerter):
 
     def __init__(self, rule):
         super(GoogleChatAlerter, self).__init__(rule)
-        self.googlechat_webhook_url = self.rule.get('googlechat_webhook_url', None)
+        self.googlechat_webhook_url = rule.get('googlechat_webhook_url', None)
+        # Coalesce str to list only if needed
         if isinstance(self.googlechat_webhook_url, str):
             self.googlechat_webhook_url = [self.googlechat_webhook_url]
-        self.googlechat_format = self.rule.get('googlechat_format', 'basic')
-        self.googlechat_header_title = self.rule.get('googlechat_header_title', None)
-        self.googlechat_header_subtitle = self.rule.get('googlechat_header_subtitle', None)
-        self.googlechat_header_image = self.rule.get('googlechat_header_image', None)
-        self.googlechat_footer_kibanalink = self.rule.get('googlechat_footer_kibanalink', None)
-        self.googlechat_proxy = self.rule.get('googlechat_proxy', None)
+        self.googlechat_format = rule.get('googlechat_format', 'basic')
+        self.googlechat_header_title = rule.get('googlechat_header_title', None)
+        self.googlechat_header_subtitle = rule.get('googlechat_header_subtitle', None)
+        self.googlechat_header_image = rule.get('googlechat_header_image', None)
+        self.googlechat_footer_kibanalink = rule.get('googlechat_footer_kibanalink', None)
+        self.googlechat_proxy = rule.get('googlechat_proxy', None)
+        # Precompute info dict to reduce per-call work in get_info
+        self._info = {
+            'type': 'googlechat',
+            'googlechat_webhook_url': self.googlechat_webhook_url
+        }
 
     def create_header(self):
         header = None
@@ -96,5 +102,4 @@ class GoogleChatAlerter(Alerter):
         elastalert_logger.info("Alert sent to Google Chat!")
 
     def get_info(self):
-        return {'type': 'googlechat',
-                'googlechat_webhook_url': self.googlechat_webhook_url}
+        return self._info
