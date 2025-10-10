@@ -51,6 +51,10 @@ class MattermostAlerter(Alerter):
         self.mattermost_opensearch_discover_color = self.rule.get('mattermost_opensearch_discover_color', '#ec4b98')
         self.mattermost_opensearch_discover_title = self.rule.get('mattermost_opensearch_discover_title', 'Discover in opensearch')
 
+        self._info = {'type': 'mattermost',
+                      'mattermost_username_override': self.mattermost_username_override,
+                      'mattermost_webhook_url': self.mattermost_webhook_url}
+
     def get_aggregation_summary_text__maximum_width(self):
         width = super(MattermostAlerter, self).get_aggregation_summary_text__maximum_width()
         # Reduced maximum width for prettier Mattermost display.
@@ -176,6 +180,4 @@ class MattermostAlerter(Alerter):
         elastalert_logger.info("Alert sent to Mattermost")
 
     def get_info(self):
-        return {'type': 'mattermost',
-                'mattermost_username_override': self.mattermost_username_override,
-                'mattermost_webhook_url': self.mattermost_webhook_url}
+        return self._info
