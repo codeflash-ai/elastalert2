@@ -346,10 +346,10 @@ class EventWindow(object):
 
     def min(self):
         """ The minimum of the value_field in the window. """
-        if len(self.data) > 0:
-            return min([x[1] for x in self.data])
-        else:
+        if not self.data:
             return None
+        # Use a generator with min to avoid allocating an intermediate list
+        return min(x[1] for x in self.data)
 
     def max(self):
         """ The maximum of the value_field in the window. """
