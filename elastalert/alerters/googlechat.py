@@ -13,25 +13,25 @@ class GoogleChatAlerter(Alerter):
 
     def __init__(self, rule):
         super(GoogleChatAlerter, self).__init__(rule)
-        self.googlechat_webhook_url = self.rule.get('googlechat_webhook_url', None)
+        get = rule.get
+        self.googlechat_webhook_url = get('googlechat_webhook_url', None)
         if isinstance(self.googlechat_webhook_url, str):
             self.googlechat_webhook_url = [self.googlechat_webhook_url]
-        self.googlechat_format = self.rule.get('googlechat_format', 'basic')
-        self.googlechat_header_title = self.rule.get('googlechat_header_title', None)
-        self.googlechat_header_subtitle = self.rule.get('googlechat_header_subtitle', None)
-        self.googlechat_header_image = self.rule.get('googlechat_header_image', None)
-        self.googlechat_footer_kibanalink = self.rule.get('googlechat_footer_kibanalink', None)
-        self.googlechat_proxy = self.rule.get('googlechat_proxy', None)
+        self.googlechat_format = get('googlechat_format', 'basic')
+        self.googlechat_header_title = get('googlechat_header_title', None)
+        self.googlechat_header_subtitle = get('googlechat_header_subtitle', None)
+        self.googlechat_header_image = get('googlechat_header_image', None)
+        self.googlechat_footer_kibanalink = get('googlechat_footer_kibanalink', None)
+        self.googlechat_proxy = get('googlechat_proxy', None)
 
     def create_header(self):
-        header = None
-        if self.googlechat_header_title:
-            header = {
-                "title": self.googlechat_header_title,
-                "subtitle": self.googlechat_header_subtitle,
-                "imageUrl": self.googlechat_header_image
-            }
-        return header
+        if not self.googlechat_header_title:
+            return None
+        return {
+            "title": self.googlechat_header_title,
+            "subtitle": self.googlechat_header_subtitle,
+            "imageUrl": self.googlechat_header_image
+        }
 
     def create_footer(self):
         footer = None
