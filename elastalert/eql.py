@@ -4,34 +4,37 @@ def format_request(body):
     query = body.get('query')
     if not query:
         return None
-    
+
     query_bool = query.get('bool')
     if not query_bool:
         return None
-    
+
     filter = query_bool.get('filter')
     if not filter:
         return None
-    
+
     filter_bool = filter.get('bool')
     if not filter_bool:
         return None
-    
+
     filter_bool_must = filter_bool.get('must')
     if not filter_bool_must:
         return None
-    
-    other_filters = []
+
     eql = None
+    other_filters = []
+    # Use local variable lookups to minimize attribute access in the loop
+    append_other = other_filters.append
     for f in filter_bool_must:
-        if f.get('eql'):
-            eql = f['eql']
+        f_eql = f.get('eql')
+        if f_eql:
+            eql = f_eql
         else:
-            other_filters.append(f)
+            append_other(f)
 
     if eql:
-        new_body = {'filter': { 'bool': { 'must': other_filters }}, 'query': eql}
-        return new_body
+        # Pre-allocate new_body as a literal
+        return {'filter': {'bool': {'must': other_filters}}, 'query': eql}
 
     return None
 
