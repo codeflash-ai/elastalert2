@@ -13,27 +13,28 @@ class IrisAlerter(Alerter):
 
     def __init__(self, rule):
         super(IrisAlerter, self).__init__(rule)
-        self.url = f"https://{self.rule.get('iris_host')}"
-        self.api_token = self.rule.get('iris_api_token')
-        self.customer_id = self.rule.get('iris_customer_id', 1)
-        self.ca_cert = self.rule.get('iris_ca_cert')
-        self.ignore_ssl_errors = self.rule.get('iris_ignore_ssl_errors', False)
-        self.description = self.rule.get('iris_description', None)
-        self.overwrite_timestamp = self.rule.get('iris_overwrite_timestamp', False)
-        self.type = self.rule.get('iris_type', 'alert')
-        self.case_template_id = self.rule.get('iris_case_template_id', None)
+        rule_get = rule.get  # Local var for faster repeated access
+        self.url = f"https://{rule_get('iris_host')}"
+        self.api_token = rule_get('iris_api_token')
+        self.customer_id = rule_get('iris_customer_id', 1)
+        self.ca_cert = rule_get('iris_ca_cert')
+        self.ignore_ssl_errors = rule_get('iris_ignore_ssl_errors', False)
+        self.description = rule_get('iris_description', None)
+        self.overwrite_timestamp = rule_get('iris_overwrite_timestamp', False)
+        self.type = rule_get('iris_type', 'alert')
+        self.case_template_id = rule_get('iris_case_template_id', None)
         self.headers = {
             'Content-Type': 'application/json',
-            'Authorization': f'Bearer {self.rule.get("iris_api_token")}'
+            'Authorization': f'Bearer {rule_get("iris_api_token")}'
         }
-        self.alert_note = self.rule.get('iris_alert_note', None)
-        self.alert_source = self.rule.get('iris_alert_source', 'ElastAlert2')
-        self.alert_tags = self.rule.get('iris_alert_tags', None)
-        self.alert_status_id = self.rule.get('iris_alert_status_id', 2)
-        self.alert_source_link = self.rule.get('iris_alert_source_link', None)
-        self.alert_severity_id = self.rule.get('iris_alert_severity_id', 1)
-        self.alert_context = self.rule.get('iris_alert_context', None)
-        self.iocs = self.rule.get('iris_iocs', None)
+        self.alert_note = rule_get('iris_alert_note', None)
+        self.alert_source = rule_get('iris_alert_source', 'ElastAlert2')
+        self.alert_tags = rule_get('iris_alert_tags', None)
+        self.alert_status_id = rule_get('iris_alert_status_id', 2)
+        self.alert_source_link = rule_get('iris_alert_source_link', None)
+        self.alert_severity_id = rule_get('iris_alert_severity_id', 1)
+        self.alert_context = rule_get('iris_alert_context', None)
+        self.iocs = rule_get('iris_iocs', None)
 
     def lookup_field(self, match: dict, field_name: str, default):
         """Populates a field with values depending on the contents of the Elastalert match
@@ -51,15 +52,16 @@ class IrisAlerter(Alerter):
 
     def make_alert_context_records(self, matches):
         alert_context = {}
-
-        for key, value in self.alert_context.items():
-            data = str(self.lookup_field(matches[0], value, ''))
-            alert_context.update(
-                {
-                    key: data
-                }
-            )
-
+        # Avoid attribute lookup in loop, bail without iterating if no context config
+        alert_context_items = getattr(self, "alert_context", None)
+        if not alert_context_items:
+            return alert_context
+        first_match = matches[0]
+        # Prebind method for speed
+        lookup_field = self.lookup_field
+        for key, value in alert_context_items.items():
+            data = str(lookup_field(first_match, value, ''))
+            alert_context[key] = data
         return alert_context
 
     def make_iocs_records(self, matches):
