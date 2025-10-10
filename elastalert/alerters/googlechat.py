@@ -10,7 +10,6 @@ from elastalert.util import EAException, elastalert_logger
 class GoogleChatAlerter(Alerter):
     """ Send a notification via Google Chat webhooks """
     required_options = frozenset(['googlechat_webhook_url'])
-
     def __init__(self, rule):
         super(GoogleChatAlerter, self).__init__(rule)
         self.googlechat_webhook_url = self.rule.get('googlechat_webhook_url', None)
@@ -22,6 +21,23 @@ class GoogleChatAlerter(Alerter):
         self.googlechat_header_image = self.rule.get('googlechat_header_image', None)
         self.googlechat_footer_kibanalink = self.rule.get('googlechat_footer_kibanalink', None)
         self.googlechat_proxy = self.rule.get('googlechat_proxy', None)
+        if self.googlechat_footer_kibanalink:
+            self._footer = {
+                "widgets": [{
+                    "buttons": [{
+                        "textButton": {
+                            "text": "VISIT KIBANA",
+                            "onClick": {
+                                "openLink": {
+                                    "url": self.googlechat_footer_kibanalink
+                                }
+                            }
+                        }
+                    }]
+                }]
+            }
+        else:
+            self._footer = None
 
     def create_header(self):
         header = None
@@ -34,22 +50,7 @@ class GoogleChatAlerter(Alerter):
         return header
 
     def create_footer(self):
-        footer = None
-        if self.googlechat_footer_kibanalink:
-            footer = {"widgets": [{
-                "buttons": [{
-                    "textButton": {
-                        "text": "VISIT KIBANA",
-                        "onClick": {
-                            "openLink": {
-                                "url": self.googlechat_footer_kibanalink
-                            }
-                        }
-                    }
-                }]
-            }]
-            }
-        return footer
+        return self._footer
 
     def create_card(self, matches):
         card = {"cards": [{
