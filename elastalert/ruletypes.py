@@ -22,10 +22,11 @@ class RuleType(object):
         self.matches = []
         self.rules = rules
         self.occurrences = {}
-        self.rules['category'] = self.rules.get('category', '')
-        self.rules['description'] = self.rules.get('description', '')
-        self.rules['owner'] = self.rules.get('owner', '')
-        self.rules['priority'] = self.rules.get('priority', '2')
+
+        self.rules.setdefault('category', '')
+        self.rules.setdefault('description', '')
+        self.rules.setdefault('owner', '')
+        self.rules.setdefault('priority', '2')
 
     def add_data(self, data):
         """ The function that the ElastAlert client calls with results from ES.
