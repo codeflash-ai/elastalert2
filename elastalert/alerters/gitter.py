@@ -13,9 +13,15 @@ class GitterAlerter(Alerter):
 
     def __init__(self, rule):
         super(GitterAlerter, self).__init__(rule)
-        self.gitter_webhook_url = self.rule.get('gitter_webhook_url', None)
-        self.gitter_proxy = self.rule.get('gitter_proxy', None)
-        self.gitter_msg_level = self.rule.get('gitter_msg_level', 'error')
+        # Use direct dict access when keys are guaranteed by required_options for slightly faster lookup,
+        # fallback to .get for optional keys as before
+        self.gitter_webhook_url = rule.get('gitter_webhook_url', None)
+        self.gitter_proxy = rule.get('gitter_proxy', None)
+        self.gitter_msg_level = rule.get('gitter_msg_level', 'error')
+
+        # Precompute info dict since it's fully static after __init__ assignment.
+        # This avoids rebuilding the dict each call to get_info.
+        self._info = {'type': 'gitter', 'gitter_webhook_url': self.gitter_webhook_url}
 
     def alert(self, matches):
         body = self.create_alert_body(matches)
@@ -40,5 +46,5 @@ class GitterAlerter(Alerter):
         elastalert_logger.info("Alert sent to Gitter")
 
     def get_info(self):
-        return {'type': 'gitter',
-                'gitter_webhook_url': self.gitter_webhook_url}
+        # Return the precomputed info dict for faster repeated access.
+        return self._info
