@@ -66,14 +66,13 @@ class MattermostAlerter(Alerter):
         alert_fields = []
         missing = self.rule.get('alert_missing_value', '<MISSING VALUE>')
         for field in self.mattermost_msg_fields:
-            field = copy.copy(field)
             if 'args' in field:
                 args_values = [lookup_es_key(matches[0], arg) or missing for arg in field['args']]
                 if 'value' in field:
                     field['value'] = field['value'].format(*args_values)
                 else:
                     field['value'] = "\n".join(str(arg) for arg in args_values)
-                del(field['args'])
+                del field['args']
             alert_fields.append(field)
         return alert_fields
 
