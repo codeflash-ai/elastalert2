@@ -668,4 +668,4 @@ class FileRulesLoader(RulesLoader):
 
     @staticmethod
     def is_yaml(filename):
-        return filename.endswith('.yaml') or filename.endswith('.yml')
+        return filename.endswith(('.yaml', '.yml'))
