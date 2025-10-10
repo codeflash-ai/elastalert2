@@ -15,11 +15,19 @@ class YzjAlerter(Alerter):
 
     def __init__(self, rule):
         super(YzjAlerter, self).__init__(rule)
-        self.yzj_token = self.rule.get('yzj_token', None)
-        self.yzj_type = self.rule.get('yzj_type', 0)
-        self.yzj_webhook_url = 'https://www.yunzhijia.com/gateway/robot/webhook/send?yzjtype=%s&yzjtoken=%s' % (self.yzj_type, self.yzj_token)
-        self.yzj_proxy = self.rule.get('yzj_proxy', None)
-        self.yzj_custom_loc = self.rule.get('yzj_custom_loc', None)
+        self.yzj_token = rule.get('yzj_token', None)
+        self.yzj_type = rule.get('yzj_type', 0)
+        # Precompute string once using f-string for greater efficiency
+        self.yzj_webhook_url = (
+            f'https://www.yunzhijia.com/gateway/robot/webhook/send?yzjtype={self.yzj_type}&yzjtoken={self.yzj_token}'
+        )
+        self.yzj_proxy = rule.get('yzj_proxy', None)
+        self.yzj_custom_loc = rule.get('yzj_custom_loc', None)
+        # Precompute info dict once for fast return in get_info
+        self._info = {
+            "type": "yzj",
+            "yzj_webhook_url": self.yzj_webhook_url
+        }
 
     def alert(self, matches):
         body = self.create_alert_body(matches)
@@ -51,7 +59,4 @@ class YzjAlerter(Alerter):
         elastalert_logger.info("Trigger sent to YZJ")
 
     def get_info(self):
-        return {
-            "type": "yzj",
-            "yzj_webhook_url": self.yzj_webhook_url
-        }
+        return self._info
