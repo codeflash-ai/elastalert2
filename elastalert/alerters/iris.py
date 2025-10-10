@@ -65,10 +65,10 @@ class IrisAlerter(Alerter):
     def make_iocs_records(self, matches):
         iocs = []
         for record in self.iocs:
-            # Duplicating match record data so we can update the ioc_value without overwriting record
-            record_data = record.copy()
-            record_data['ioc_value'] = lookup_es_key(matches[0], record['ioc_value'])
-            if record_data['ioc_value'] is not None:
+            ioc_value = lookup_es_key(matches[0], record['ioc_value'])
+            if ioc_value is not None:
+                record_data = record.copy()
+                record_data['ioc_value'] = ioc_value
                 iocs.append(record_data)
         return iocs
 
