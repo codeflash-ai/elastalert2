@@ -36,11 +36,17 @@ class MsTeamsAlerter(Alerter):
 
     def populate_facts(self, matches):
         alert_facts = []
-        for arg in self.ms_teams_alert_facts:
-            arg = copy.copy(arg)
-            matched_value = lookup_es_key(matches[0], arg['value'])
-            arg['value'] = matched_value if matched_value is not None else arg['value']
-            alert_facts.append(arg)
+        ms_teams_alert_facts = self.ms_teams_alert_facts
+        first_match = matches[0]
+        for arg in ms_teams_alert_facts:
+            matched_value = lookup_es_key(first_match, arg['value'])
+            if matched_value is not None:
+                # Only copy if we're mutating
+                arg_copy = arg.copy()
+                arg_copy['value'] = matched_value
+                alert_facts.append(arg_copy)
+            else:
+                alert_facts.append(arg)
         return alert_facts
 
     def alert(self, matches):
