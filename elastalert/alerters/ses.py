@@ -96,13 +96,13 @@ class SesAlerter(Alerter):
         elastalert_logger.info("Sent Amazon SES to %s" % (to_addr,))
 
     def create_default_title(self, matches):
-        subject = 'ElastAlert 2: %s' % (self.rule['name'])
+        subject = f"ElastAlert 2: {self.rule['name']}"
 
         # If the rule has a query_key, add that value plus timestamp to subject
         if 'query_key' in self.rule:
             qk = matches[0].get(self.rule['query_key'])
             if qk:
-                subject += ' - %s' % (qk)
+                subject = f"{subject} - {qk}"
 
         return subject
 
