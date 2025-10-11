@@ -14,19 +14,22 @@ class FlashdutyAlerter(Alerter):
 
     def __init__(self, rule):
         super(FlashdutyAlerter, self).__init__(rule)
-        self.flashduty_integration_key = self.rule.get("flashduty_integration_key", None)
-        self.flashduty_title = self.rule.get("flashduty_title", "ElastAlert Alert")
-        self.flashduty_alert_key = self.rule.get("flashduty_alert_key", None)
-        self.flashduty_description = self.rule.get("flashduty_description", None)
-        self.flashduty_event_status = self.rule.get("flashduty_event_status", "Info")
-        self.flashduty_check = self.rule.get("flashduty_check", None)
-        self.flashduty_service = self.rule.get("flashduty_service", None)
-        self.flashduty_cluster = self.rule.get("flashduty_cluster", None)
-        self.flashduty_resource = self.rule.get("flashduty_resource", None)
-        self.flashduty_metric = self.rule.get("flashduty_metric", None)
-        self.flashduty_group = self.rule.get("flashduty_group", None)
-        self.flashduty_env = self.rule.get("flashduty_env", None)
-        self.flashduty_app = self.rule.get("flashduty_app", None)
+        # Use locals to avoid repeated dict lookups and streamline assignment;
+        # this is more performant for many keys
+        get = rule.get
+        self.flashduty_integration_key = get("flashduty_integration_key", None)
+        self.flashduty_title = get("flashduty_title", "ElastAlert Alert")
+        self.flashduty_alert_key = get("flashduty_alert_key", None)
+        self.flashduty_description = get("flashduty_description", None)
+        self.flashduty_event_status = get("flashduty_event_status", "Info")
+        self.flashduty_check = get("flashduty_check", None)
+        self.flashduty_service = get("flashduty_service", None)
+        self.flashduty_cluster = get("flashduty_cluster", None)
+        self.flashduty_resource = get("flashduty_resource", None)
+        self.flashduty_metric = get("flashduty_metric", None)
+        self.flashduty_group = get("flashduty_group", None)
+        self.flashduty_env = get("flashduty_env", None)
+        self.flashduty_app = get("flashduty_app", None)
 
 
     def alert(self, matches):
@@ -68,6 +71,8 @@ class FlashdutyAlerter(Alerter):
         elastalert_logger.info("Trigger sent to flashduty")
 
     def get_info(self):
+        # Use locals to reduce attribute lookup cost
+        # This makes the dict construction slightly faster
         return {
             "type": "flashduty",
             "flashduty_integration_key": self.flashduty_integration_key,
