@@ -60,6 +60,9 @@ class ZabbixAlerter(Alerter):
         self.timestamp_type = self.rule.get('timestamp_type', 'iso')
         self.timestamp_strptime = self.rule.get('timestamp_strptime', '%Y-%m-%dT%H:%M:%S.%f%z')
 
+        # Precompute info dict to avoid recreating it on every get_info call
+        self._info_dict = {'type': 'zabbix Alerter'}
+
     # Alert is called
     def alert(self, matches):
 
@@ -102,4 +105,4 @@ class ZabbixAlerter(Alerter):
     # to Elasticsearch in the field "alert_info"
     # It should return a dict of information relevant to what the alert does
     def get_info(self):
-        return {'type': 'zabbix Alerter'}
+        return self._info_dict
