@@ -8,20 +8,31 @@ from requests import RequestException
 from elastalert.alerts import Alerter, DateTimeEncoder
 from elastalert.util import lookup_es_key, EAException, elastalert_logger
 
+_encode_basestring = json.encoder.encode_basestring
+
+_slice_1_minus1 = slice(1, -1)
+
 
 def _json_escape(s):
-    return json.encoder.encode_basestring(s)[1:-1]
+    # Use cached function and precomputed slice for efficiency
+    return _encode_basestring(s)[_slice_1_minus1]
 
 
 def _escape_all_values(x):
     """recursively rebuilds, and escapes all strings for json, the given dict/list"""
-    if isinstance(x, dict):
-        x = { k:_escape_all_values(v) for k, v in x.items() }
-    elif isinstance(x, list):
-        x = [ _escape_all_values(v) for v in x ]
-    elif isinstance(x, str):
-        x = _json_escape(x)
-    return x
+    # Use fast-path type checks and reduce attribute lookups
+    x_type = type(x)
+    if x_type is dict:
+        # List comprehension is marginally faster than generator for dict
+        return {k: _escape_all_values(v) for k, v in x.items()}
+    elif x_type is list:
+        # List comprehension is slightly faster than generator for lists
+        return [_escape_all_values(v) for v in x]
+    elif x_type is str:
+        # Use cached escape function
+        return _json_escape(x)
+    else:
+        return x
 
 
 def _render_json_template(template, match):
