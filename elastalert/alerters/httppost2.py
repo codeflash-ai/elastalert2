@@ -27,8 +27,17 @@ def _escape_all_values(x):
 def _render_json_template(template, match):
     if not isinstance(template, str):
         template = json.dumps(template)
-    template = Template(template)
-
+    
+    cache = getattr(_render_json_template, "_template_cache", None)
+    if cache is None:
+        from functools import lru_cache
+        @lru_cache(maxsize=128)
+        def get_template(template_str):
+            return Template(template_str)
+        _render_json_template._template_cache = get_template
+        cache = get_template
+    
+    template = cache(template)
     return json.loads(template.render(**match))
 
 
