@@ -15,6 +15,8 @@ from elastalert import ElasticSearchClient
 from elastalert.auth import Auth
 from elasticsearch.exceptions import TransportError
 
+_array_index_pattern = re.compile(r'(.+?)\[(\d)\](.*)')
+
 logging.basicConfig()
 logging.captureWarnings(True)
 elastalert_logger = logging.getLogger('elastalert')
@@ -62,45 +64,59 @@ def _find_es_dict_by_key(lookup_dict: dict, term: str, string_multi_field_name: 
 
     """
     subkeys = term.split('.')
+    subkeys_len = len(subkeys)
 
-    # reverse to match longest fieldnames first
-    for i in reversed(range(1, len(subkeys)+1)):
-        root = ".".join(subkeys[0:i])
+    # Instead of joining via "." in every iteration, use running join when possible
+    joined_subkeys = [""] * subkeys_len
+    joined_subkeys[0] = subkeys[0]
+    for i in range(1, subkeys_len):
+        joined_subkeys[i] = joined_subkeys[i - 1] + "." + subkeys[i]
 
-        # Handle array index references
-        # Example
-        # foo[3]bar[1]baz is recursively checked as
-        # _find_es_dict_by_key(lookup_dict['foo'][3], 'bar[1]baz')
+    for i in range(subkeys_len, 0, -1):
+        if i == subkeys_len:
+            root = term
+        else:
+            root = joined_subkeys[i - 1]
 
-        m = re.search(r'(.+?)\[(\d)\](.*)', root)
+        m = _array_index_pattern.match(root)
         value_index = None
         child_components = []
         if m:
             root = m.group(1)
             value_index = int(m.group(2))
-            if m.group(3):
-                child_components.append(m.group(3))
+            g3 = m.group(3)
+            if g3:
+                child_components.append(g3)
 
         if root in lookup_dict:
-            child_components.extend(subkeys[i:])
+            if i < subkeys_len:
+                child_components.extend(subkeys[i:])
 
-            # Pursue 'keyword' (if present) as a literal required fieldname
+            # check for possible keyword field literal and for omitted keyword
             child_components_options = [child_components]
-            try:
-                # Then pursue 'keyword' (if present) as subfield specifier by ignoring it
-                if child_components[-1] == string_multi_field_name:
-                    child_components_options.append(child_components[:-1])
-            except IndexError:
-                pass
+            if child_components and child_components[-1] == string_multi_field_name:
+                # make a shallow copy for the omitted keyword candidate
+                child_components_options.append(child_components[:-1])
 
             for child_components_option in child_components_options:
-                child = ".".join(child_components_option)
+                l = len(child_components_option)
+                if l == 0:
+                    child = ''
+                elif l == 1:
+                    child = child_components_option[0]
+                else:
+                    child = ".".join(child_components_option)
+
                 if value_index is not None:
                     if not child:
                         return lookup_dict[root], value_index
-                    if isinstance(lookup_dict[root][value_index], dict):
+                    try:
+                        sub_val = lookup_dict[root][value_index]
+                    except IndexError:
+                        return {}, None
+                    if isinstance(sub_val, dict):
                         try:
-                            return _find_es_dict_by_key(lookup_dict[root][value_index], child, string_multi_field_name)
+                            return _find_es_dict_by_key(sub_val, child, string_multi_field_name)
                         except IndexError:
                             return {}, None
 
@@ -174,8 +190,8 @@ def dt_to_ts_with_format(dt, ts_format):
 
 
 def ts_now():
-    now = datetime.datetime.now(tz=datetime.UTC)
-    return now.replace(tzinfo=dateutil.tz.tzutc())
+    now = datetime.datetime.now(tz=dateutil.tz.tzutc())
+    return now
 
 
 def ts_utc_to_tz(ts, tz_name):
@@ -263,8 +279,8 @@ def total_seconds(dt):
 
 
 def dt_to_int(dt):
-    dt = dt.replace(tzinfo=datetime.UTC)
-    return int(total_seconds((dt - datetime.datetime.fromtimestamp(0, tz=datetime.UTC))) * 1000)
+    dt = dt.replace(tzinfo=dateutil.tz.tzutc())
+    return int(total_seconds((dt - datetime.datetime.fromtimestamp(0, tz=dateutil.tz.tzutc()))) * 1000)
 
 
 def unixms_to_dt(ts):
@@ -272,8 +288,7 @@ def unixms_to_dt(ts):
 
 
 def unix_to_dt(ts):
-    dt = datetime.datetime.fromtimestamp(float(ts), tz=datetime.UTC)
-    dt = dt.replace(tzinfo=dateutil.tz.tzutc())
+    dt = datetime.datetime.fromtimestamp(float(ts), tz=dateutil.tz.tzutc())
     return dt
 
 
@@ -342,7 +357,7 @@ def build_es_conn_config(conf):
     with properly initialized values for 'es_host', 'es_port', 'use_ssl' and 'http_auth' which
     will be a basicauth username:password formatted string """
     parsed_conf = {}
-    parsed_conf['use_ssl'] = os.environ.get('ES_USE_SSL', False)
+    parsed_conf['use_ssl'] = os.environ.get('ES_USE_SSL', '0') == '1'
     parsed_conf['verify_certs'] = True
     parsed_conf['ca_certs'] = None
     parsed_conf['client_cert'] = None
@@ -429,7 +444,8 @@ def parse_duration(value):
 def parse_deadline(value):
     """Convert ``unit=num`` spec into a ``datetime`` object."""
     duration = parse_duration(value)
-    return ts_now() + duration
+    now = datetime.datetime.now(tz=dateutil.tz.tzlocal())
+    return now + duration
 
 
 def flatten_dict(dct, delim='.', prefix=''):
