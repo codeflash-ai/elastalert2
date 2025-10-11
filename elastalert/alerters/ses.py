@@ -11,36 +11,40 @@ class SesAlerter(Alerter):
     def __init__(self, *args):
         super(SesAlerter, self).__init__(*args)
 
-        self.aws_access_key_id = self.rule.get('ses_aws_access_key_id')
-        self.aws_secret_access_key = self.rule.get('ses_aws_secret_access_key')
-        self.aws_region = self.rule.get('ses_aws_region', 'us-east-1')
-        self.aws_profile = self.rule.get('ses_aws_profile', '')
+        rule = self.rule
 
-        self.email = self.rule.get('ses_email', None)
-        self.from_addr = self.rule.get('ses_from_addr', None)
+        self.aws_access_key_id = rule.get('ses_aws_access_key_id')
+        self.aws_secret_access_key = rule.get('ses_aws_secret_access_key')
+        self.aws_region = rule.get('ses_aws_region', 'us-east-1')
+        self.aws_profile = rule.get('ses_aws_profile', '')
+
+        self.email = rule.get('ses_email', None)
+        self.from_addr = rule.get('ses_from_addr', None)
 
         # Convert email to a list if it isn't already
         if isinstance(self.email, str):
             self.email = [self.email]
 
         # If there is a cc then also convert it a list if it isn't
-        cc = self.rule.get('ses_cc')
+        cc = rule.get('ses_cc')
         if cc and isinstance(cc, str):
-            self.rule['ses_cc'] = [self.rule['ses_cc']]
+            rule['ses_cc'] = [rule['ses_cc']]
 
         # If there is a bcc then also convert it to a list if it isn't
-        bcc = self.rule.get('ses_bcc')
+        bcc = rule.get('ses_bcc')
         if bcc and isinstance(bcc, str):
-            self.rule['ses_bcc'] = [self.rule['ses_bcc']]
+            rule['ses_bcc'] = [rule['ses_bcc']]
 
         # If there is a email_reply_to then also convert it to a list if it isn't
-        reply_to = self.rule.get('ses_email_reply_to')
+        reply_to = rule.get('ses_email_reply_to')
         if reply_to and isinstance(reply_to, str):
-            self.rule['ses_email_reply_to'] = [self.rule['ses_email_reply_to']]
+            rule['ses_email_reply_to'] = [rule['ses_email_reply_to']]
 
-        add_suffix = self.rule.get('ses_email_add_domain')
+        add_suffix = rule.get('ses_email_add_domain')
         if add_suffix and not add_suffix.startswith('@'):
-            self.rule['ses_email_add_domain'] = '@' + add_suffix
+            rule['ses_email_add_domain'] = '@' + add_suffix
+
+        self._info = {'type': 'ses', 'recipients': self.email}
 
     def alert(self, matches):
         body = self.create_alert_body(matches)
@@ -107,5 +111,4 @@ class SesAlerter(Alerter):
         return subject
 
     def get_info(self):
-        return {'type': 'ses',
-                'recipients': self.email}
+        return self._info
