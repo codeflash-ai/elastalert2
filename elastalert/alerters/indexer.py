@@ -12,11 +12,15 @@ class IndexerAlerter(Alerter):
     required_options = frozenset(['indexer_alert_config'])
 
     def lookup_field(self, match: dict, field_name: str, default):
-        field_value = lookup_es_key(match, field_name)
-        if field_value is None:
-            field_value = self.rule.get(field_name, default)
-
-        return field_value
+        # Try fast-path lookup in match first, only call lookup_es_key if needed
+        result = None
+        if isinstance(match, dict) and field_name in match:
+            result = match[field_name]
+        else:
+            result = lookup_es_key(match, field_name)
+        if result is None:
+            result = self.rule.get(field_name, default)
+        return result
 
     def get_query(self,body_request_raw):
         original = body_request_raw[0]
@@ -26,28 +30,37 @@ class IndexerAlerter(Alerter):
         return query['query']
 
     def lookup_list_fields(self, original_fields_raw: list, match: dict):
+        """Optimized for reduced redundant lookups: minimizing method calls and lookups."""
         original_fields = {}
+        append_field = original_fields.__setitem__
         for field in original_fields_raw:
-            if field.get('value'):
-                if (isinstance(field['value'], str)):
-                    if field['value'] == 'filter':
-                        body_request_raw = self.rule.get(field['value'])
+            get_field_value = field.get('value')
+            if get_field_value:
+                if isinstance(get_field_value, str):
+                    if get_field_value == 'filter':
+                        body_request_raw = self.rule.get(get_field_value)
                         value = self.get_query(body_request_raw)
                     else:
-                        value = self.lookup_field(match, field['value'], field['value'])
+                        # Try fast-path lookup to avoid repeated deep search
+                        if isinstance(match, dict) and get_field_value in match:
+                            value = match[get_field_value]
+                        else:
+                            value = lookup_es_key(match, get_field_value)
+                        if value is None:
+                            value = self.rule.get(get_field_value, get_field_value)
                 else:
-                    value = field['value']
-                original_fields[field['name']] = value
+                    value = get_field_value
+                append_field(field['name'], value)
             else:
-                for k,v in field.items():
-                    original_fields[k] = self.lookup_list_fields(v, match)
-
+                for k, v in field.items():
+                    append_field(k, self.lookup_list_fields(v, match))
         return original_fields
 
     def event_orig_fields(self, original_fields_raw, match: dict):
-        if (isinstance(original_fields_raw, str)):
+        # Fast-path: check for dict first, so we only invoke lookup_field
+        if isinstance(original_fields_raw, str):
             value = self.lookup_field(match, original_fields_raw, original_fields_raw)
-        elif (isinstance(original_fields_raw, list)):
+        elif isinstance(original_fields_raw, list):
             value = self.lookup_list_fields(original_fields_raw, match)
         else:
             value = original_fields_raw
