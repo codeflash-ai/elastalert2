@@ -16,6 +16,11 @@ class TwilioAlerter(Alerter):
         self.twilio_from_number = self.rule.get('twilio_from_number', None)
         self.twilio_message_service_sid = self.rule.get('twilio_message_service_sid', None)
         self.twilio_use_copilot = self.rule.get('twilio_use_copilot', False)
+        # Cache get_info result since it only depends on immutable init values
+        self._get_info_result = {
+            'type': 'twilio',
+            'twilio_client_name': self.twilio_from_number
+        }
 
     def alert(self, matches):
         client = TwilioClient(self.twilio_account_sid, self.twilio_auth_token)
@@ -41,5 +46,4 @@ class TwilioAlerter(Alerter):
         elastalert_logger.info("Trigger sent to Twilio")
 
     def get_info(self):
-        return {'type': 'twilio',
-                'twilio_client_name': self.twilio_from_number}
+        return self._get_info_result
