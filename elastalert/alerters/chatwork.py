@@ -14,12 +14,19 @@ class ChatworkAlerter(Alerter):
 
     def __init__(self, rule):
         super(ChatworkAlerter, self).__init__(rule)
-        self.chatwork_apikey = self.rule.get('chatwork_apikey', None)
-        self.chatwork_room_id = self.rule.get('chatwork_room_id', None)
-        self.url = 'https://api.chatwork.com/v2/rooms/%s/messages' % (self.chatwork_room_id)
-        self.chatwork_proxy = self.rule.get('chatwork_proxy', None)
-        self.chatwork_proxy_login = self.rule.get('chatwork_proxy_login', None)
-        self.chatwork_proxy_pass = self.rule.get('chatwork_proxy_pass', None)
+        chatwork_apikey = rule.get('chatwork_apikey', None)
+        chatwork_room_id = rule.get('chatwork_room_id', None)
+        self.chatwork_apikey = chatwork_apikey
+        self.chatwork_room_id = chatwork_room_id
+        self.url = f'https://api.chatwork.com/v2/rooms/{chatwork_room_id}/messages'
+        self.chatwork_proxy = rule.get('chatwork_proxy', None)
+        self.chatwork_proxy_login = rule.get('chatwork_proxy_login', None)
+        self.chatwork_proxy_pass = rule.get('chatwork_proxy_pass', None)
+        # Pre-initialize info dict for faster get_info calls
+        self._info = {
+            "type": "chatwork",
+            "chatwork_room_id": self.chatwork_room_id
+        }
 
     def alert(self, matches):
         body = ''
@@ -45,7 +52,4 @@ class ChatworkAlerter(Alerter):
             "Alert sent to Chatwork room %s" % self.chatwork_room_id)
 
     def get_info(self):
-        return {
-            "type": "chatwork",
-            "chatwork_room_id": self.chatwork_room_id
-        }
+        return self._info
