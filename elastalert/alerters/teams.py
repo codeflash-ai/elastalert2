@@ -12,21 +12,27 @@ class MsTeamsAlerter(Alerter):
     required_options = frozenset(['ms_teams_webhook_url'])
 
     def __init__(self, rule):
-        super(MsTeamsAlerter, self).__init__(rule)
-        self.ms_teams_webhook_url = self.rule.get('ms_teams_webhook_url', None)
-        if isinstance(self.ms_teams_webhook_url, str):
-            self.ms_teams_webhook_url = [self.ms_teams_webhook_url]
-        self.ms_teams_proxy = self.rule.get('ms_teams_proxy', None)
-        self.ms_teams_alert_summary = self.rule.get('ms_teams_alert_summary', None)
-        self.ms_teams_alert_fixed_width = self.rule.get('ms_teams_alert_fixed_width', False)
-        self.ms_teams_theme_color = self.rule.get('ms_teams_theme_color', '')
-        self.ms_teams_ca_certs = self.rule.get('ms_teams_ca_certs')
-        self.ms_teams_ignore_ssl_errors = self.rule.get('ms_teams_ignore_ssl_errors', False)
-        self.ms_teams_alert_facts = self.rule.get('ms_teams_alert_facts', '')
-        self.ms_teams_attach_kibana_discover_url = self.rule.get('ms_teams_attach_kibana_discover_url', False)
-        self.ms_teams_kibana_discover_title = self.rule.get('ms_teams_kibana_discover_title', 'Discover in Kibana')
-        self.ms_teams_attach_opensearch_discover_url = self.rule.get('ms_teams_attach_opensearch_discover_url', False)
-        self.ms_teams_opensearch_discover_title = self.rule.get('ms_teams_opensearch_discover_title', 'Discover in opensearch')
+        # Use direct super() call for better performance in Python 3.x
+        super().__init__(rule)
+        rule_get = self.rule.get  # Local variable to avoid attribute lookup in each call
+
+        ms_teams_webhook_url = rule_get('ms_teams_webhook_url', None)
+        if isinstance(ms_teams_webhook_url, str):
+            ms_teams_webhook_url = [ms_teams_webhook_url]
+        self.ms_teams_webhook_url = ms_teams_webhook_url
+
+        # Cache lookups for __init__ rule keys via local rule_get for improved performance
+        self.ms_teams_proxy = rule_get('ms_teams_proxy', None)
+        self.ms_teams_alert_summary = rule_get('ms_teams_alert_summary', None)
+        self.ms_teams_alert_fixed_width = rule_get('ms_teams_alert_fixed_width', False)
+        self.ms_teams_theme_color = rule_get('ms_teams_theme_color', '')
+        self.ms_teams_ca_certs = rule_get('ms_teams_ca_certs')
+        self.ms_teams_ignore_ssl_errors = rule_get('ms_teams_ignore_ssl_errors', False)
+        self.ms_teams_alert_facts = rule_get('ms_teams_alert_facts', '')
+        self.ms_teams_attach_kibana_discover_url = rule_get('ms_teams_attach_kibana_discover_url', False)
+        self.ms_teams_kibana_discover_title = rule_get('ms_teams_kibana_discover_title', 'Discover in Kibana')
+        self.ms_teams_attach_opensearch_discover_url = rule_get('ms_teams_attach_opensearch_discover_url', False)
+        self.ms_teams_opensearch_discover_title = rule_get('ms_teams_opensearch_discover_title', 'Discover in opensearch')
 
     def format_body(self, body):
         if self.ms_teams_alert_fixed_width:
@@ -116,5 +122,8 @@ class MsTeamsAlerter(Alerter):
         elastalert_logger.info("Alert sent to MS Teams")
 
     def get_info(self):
-        return {'type': 'ms_teams',
-                'ms_teams_webhook_url': self.ms_teams_webhook_url}
+        # Structure unchanged - single allocation for dict return
+        return {
+            'type': 'ms_teams',
+            'ms_teams_webhook_url': self.ms_teams_webhook_url
+        }
