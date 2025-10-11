@@ -354,7 +354,17 @@ class EventWindow(object):
     def max(self):
         """ The maximum of the value_field in the window. """
         if len(self.data) > 0:
-            return max([x[1] for x in self.data])
+            # Avoid building intermediate lists for performance
+            it = iter(self.data)
+            try:
+                max_value = next(it)[1]
+            except StopIteration:
+                return None
+            for x in it:
+                v = x[1]
+                if v > max_value:
+                    max_value = v
+            return max_value
         else:
             return None
 
@@ -406,6 +416,12 @@ class SpikeRule(RuleType):
         self.field_value = self.rules.get('field_value')
 
         self.ref_window_filled_once = False
+
+        # Cache values for frequent rule fields (avoid repeated dict lookups)
+        self._threshold_cur = self.rules.get('threshold_cur', 0)
+        self._threshold_ref = self.rules.get('threshold_ref', 0)
+        self._spike_height = self.rules['spike_height']
+        self._spike_type = self.rules['spike_type']
 
     def add_count_data(self, data):
         """ Add count data to the rule. Data should be of the form {ts: count}. """
@@ -524,40 +540,49 @@ class SpikeRule(RuleType):
         """ Determines if an event spike or dip happening. """
         # Apply threshold limits
         if self.field_value is None and cur is not None and ref is not None:
-            if (cur < self.rules.get('threshold_cur', 0) or
-                    ref < self.rules.get('threshold_ref', 0)):
+            if (cur < self._threshold_cur or
+                    ref < self._threshold_ref):
                 return False
         elif ref is None or ref == 0 or cur is None or cur == 0:
             return False
 
-        spike_up, spike_down = False, False
-        if cur <= ref / self.rules['spike_height']:
-            spike_down = True
-        if cur >= ref * self.rules['spike_height']:
-            spike_up = True
+        # Use local variables instead of repeatedly referencing self attrs
+        spike_height = self._spike_height
+        spike_type = self._spike_type
 
-        if (self.rules['spike_type'] in ['both', 'up'] and spike_up) or \
-           (self.rules['spike_type'] in ['both', 'down'] and spike_down):
+        spike_up = cur >= ref * spike_height
+        spike_down = cur <= ref / spike_height
+
+        # Use tuple membership testing for spike_type
+        if (spike_up and spike_type in ('both', 'up')) or \
+           (spike_down and spike_type in ('both', 'down')):
             return True
         return False
 
     def get_match_str(self, match):
+        # Cache repeated rules lookups to local variables
+        rules = self.rules
+        timestamp_field = rules['timestamp_field'] if 'timestamp_field' in rules else '@timestamp'
+        use_local_time = rules.get('use_local_time')
+        custom_pretty_ts_format = rules.get('custom_pretty_ts_format')
+        timeframe = rules['timeframe']
         if self.field_value is None:
+            ts_str = pretty_ts(match[timestamp_field], use_local_time, custom_pretty_ts_format)
             message = 'An abnormal number (%d) of events occurred around %s.\n' % (
                 match['spike_count'],
-                pretty_ts(match[self.rules['timestamp_field']], self.rules.get('use_local_time'), self.rules.get('custom_pretty_ts_format'))
+                ts_str
             )
-            message += 'Preceding that time, there were only %d events within %s\n\n' % (match['reference_count'], self.rules['timeframe'])
+            message += 'Preceding that time, there were only %d events within %s\n\n' % (
+                match['reference_count'], timeframe)
         else:
+            ts_str = pretty_ts(match[timestamp_field], use_local_time, custom_pretty_ts_format)
             message = 'An abnormal average value (%.2f) of field \'%s\' occurred around %s.\n' % (
                 match['spike_count'],
                 self.field_value,
-                pretty_ts(match[self.rules['timestamp_field']],
-                          self.rules.get('use_local_time'),
-                          self.rules.get('custom_pretty_ts_format'))
+                ts_str
             )
             message += 'Preceding that time, the field had an average value of (%.2f) within %s\n\n' % (
-                match['reference_count'], self.rules['timeframe'])
+                match['reference_count'], timeframe)
         return message
 
     def garbage_collect(self, ts):
