@@ -25,6 +25,8 @@ class HTTPPostAlerter(Alerter):
         self.post_ca_certs = self.rule.get('http_post_ca_certs')
         self.post_ignore_ssl_errors = self.rule.get('http_post_ignore_ssl_errors', False)
         self.timeout = self.rule.get('http_post_timeout', 10)
+        self._info_dict = {'type': 'http_post',
+                          'http_post_webhook_url': self.post_url}
 
     def alert(self, matches):
         """ Each match will trigger a POST to the specified endpoint(s). """
@@ -57,5 +59,4 @@ class HTTPPostAlerter(Alerter):
             elastalert_logger.info("HTTP Post alert sent.")
 
     def get_info(self):
-        return {'type': 'http_post',
-                'http_post_webhook_url': self.post_url}
+        return self._info_dict
