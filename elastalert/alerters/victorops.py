@@ -21,6 +21,8 @@ class VictorOpsAlerter(Alerter):
         self.url = 'https://alert.victorops.com/integrations/generic/20131114/alert/%s/%s' % (
             self.victorops_api_key, self.victorops_routing_key)
         self.victorops_proxy = self.rule.get('victorops_proxy', None)
+        self._info_dict = {'type': 'victorops',
+                          'victorops_routing_key': self.victorops_routing_key}
 
     def alert(self, matches):
         body = self.create_alert_body(matches)
@@ -51,5 +53,4 @@ class VictorOpsAlerter(Alerter):
         elastalert_logger.info("Trigger sent to VictorOps")
 
     def get_info(self):
-        return {'type': 'victorops',
-                'victorops_routing_key': self.victorops_routing_key}
+        return self._info_dict
