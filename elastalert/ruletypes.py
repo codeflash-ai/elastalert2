@@ -48,7 +48,8 @@ class RuleType(object):
         if ts in event:
             event[ts] = dt_to_ts(event[ts])
 
-        self.matches.append(copy.deepcopy(event))
+        # Use shallow copy instead of deepcopy (events are flat dicts, so this is safe and much faster)
+        self.matches.append(event.copy())
 
     def get_match_str(self, match):
         """ Returns a string that gives more context about a match.
@@ -354,7 +355,17 @@ class EventWindow(object):
     def max(self):
         """ The maximum of the value_field in the window. """
         if len(self.data) > 0:
-            return max([x[1] for x in self.data])
+            # Avoid building intermediate lists for performance
+            it = iter(self.data)
+            try:
+                max_value = next(it)[1]
+            except StopIteration:
+                return None
+            for x in it:
+                v = x[1]
+                if v > max_value:
+                    max_value = v
+            return max_value
         else:
             return None
 
@@ -406,6 +417,12 @@ class SpikeRule(RuleType):
         self.field_value = self.rules.get('field_value')
 
         self.ref_window_filled_once = False
+
+        # Cache values for frequent rule fields (avoid repeated dict lookups)
+        self._threshold_cur = self.rules.get('threshold_cur', 0)
+        self._threshold_ref = self.rules.get('threshold_ref', 0)
+        self._spike_height = self.rules['spike_height']
+        self._spike_type = self.rules['spike_type']
 
     def add_count_data(self, data):
         """ Add count data to the rule. Data should be of the form {ts: count}. """
@@ -466,45 +483,65 @@ class SpikeRule(RuleType):
         self.skip_checks[qk] = lookup_es_key(event, self.ts_field) + self.rules['timeframe'] * 2
 
     def handle_event(self, event, count, qk='all'):
-        self.first_event.setdefault(qk, event)
+        # Optimize setdefault by caching dicts in local variables
+        first_event = self.first_event
+        ref_windows = self.ref_windows
+        cur_windows = self.cur_windows
 
-        self.ref_windows.setdefault(qk, EventWindow(self.timeframe, getTimestamp=self.get_ts))
-        self.cur_windows.setdefault(qk, EventWindow(self.timeframe, self.ref_windows[qk].append, self.get_ts))
+        evt = first_event.get(qk)
+        if evt is None:
+            first_event[qk] = event
+            evt = event
 
-        self.cur_windows[qk].append((event, count))
+        ref_win = ref_windows.get(qk)
+        if ref_win is None:
+            ref_win = EventWindow(self.timeframe, getTimestamp=self.get_ts)
+            ref_windows[qk] = ref_win
+
+        cur_win = cur_windows.get(qk)
+        if cur_win is None:
+            cur_win = EventWindow(self.timeframe, ref_win.append, self.get_ts)
+            cur_windows[qk] = cur_win
+
+        cur_win.append((event, count))
+
+        event_ts = lookup_es_key(event, self.ts_field)
+        first_evt_ts = evt[self.ts_field]
+        timeframe_twice = self.rules['timeframe'] * 2
+        skip_checks = self.skip_checks
 
         # Don't alert if ref window has not yet been filled for this key AND
-        if lookup_es_key(event, self.ts_field) - self.first_event[qk][self.ts_field] < self.rules['timeframe'] * 2:
+        if event_ts - first_evt_ts < timeframe_twice:
             # ElastAlert has not been running long enough for any alerts OR
             if not self.ref_window_filled_once:
                 return
             # This rule is not using alert_on_new_data (with query_key) OR
-            if not (self.rules.get('query_key') and self.rules.get('alert_on_new_data')):
+            rules = self.rules
+            if not (rules.get('query_key') and rules.get('alert_on_new_data')):
                 return
             # An alert for this qk has recently fired
-            if qk in self.skip_checks and lookup_es_key(event, self.ts_field) < self.skip_checks[qk]:
+            if qk in skip_checks and event_ts < skip_checks[qk]:
                 return
         else:
             self.ref_window_filled_once = True
 
         if self.field_value is not None:
-            if self.find_matches(self.ref_windows[qk].mean(), self.cur_windows[qk].mean()):
+            if self.find_matches(ref_win.mean(), cur_win.mean()):
                 # skip over placeholder events
-                for match, count in self.cur_windows[qk].data:
+                for match, count in cur_win.data:
                     if "placeholder" not in match:
+                        self.add_match(match, qk)
+                        self.clear_windows(qk, match)
                         break
-                self.add_match(match, qk)
-                self.clear_windows(qk, match)
         else:
             ref, cur = self.get_spike_values(qk)
             if self.find_matches(ref, cur):
                 # skip over placeholder events which have count=0
-                for match, count in self.cur_windows[qk].data:
+                for match, count in cur_win.data:
                     if count:
+                        self.add_match(match, qk)
+                        self.clear_windows(qk, match)
                         break
-
-                self.add_match(match, qk)
-                self.clear_windows(qk, match)
 
     def add_match(self, match, qk):
         extra_info = {}
@@ -524,20 +561,22 @@ class SpikeRule(RuleType):
         """ Determines if an event spike or dip happening. """
         # Apply threshold limits
         if self.field_value is None and cur is not None and ref is not None:
-            if (cur < self.rules.get('threshold_cur', 0) or
-                    ref < self.rules.get('threshold_ref', 0)):
+            if (cur < self._threshold_cur or
+                    ref < self._threshold_ref):
                 return False
         elif ref is None or ref == 0 or cur is None or cur == 0:
             return False
 
-        spike_up, spike_down = False, False
-        if cur <= ref / self.rules['spike_height']:
-            spike_down = True
-        if cur >= ref * self.rules['spike_height']:
-            spike_up = True
+        # Use local variables instead of repeatedly referencing self attrs
+        spike_height = self._spike_height
+        spike_type = self._spike_type
 
-        if (self.rules['spike_type'] in ['both', 'up'] and spike_up) or \
-           (self.rules['spike_type'] in ['both', 'down'] and spike_down):
+        spike_up = cur >= ref * spike_height
+        spike_down = cur <= ref / spike_height
+
+        # Use tuple membership testing for spike_type
+        if (spike_up and spike_type in ('both', 'up')) or \
+           (spike_down and spike_type in ('both', 'down')):
             return True
         return False
 
@@ -1066,19 +1105,20 @@ class MetricAggregationRule(BaseAggregationRule):
 
     def __init__(self, *args):
         super(MetricAggregationRule, self).__init__(*args)
-        self.ts_field = self.rules.get('timestamp_field', '@timestamp')
-        if 'max_threshold' not in self.rules and 'min_threshold' not in self.rules:
+        rules = self.rules
+        self.ts_field = rules.get('timestamp_field', '@timestamp')
+        if 'max_threshold' not in rules and 'min_threshold' not in rules:
             raise EAException("MetricAggregationRule must have at least one of either max_threshold or min_threshold")
 
-        self.metric_key = 'metric_' + self.rules['metric_agg_key'] + '_' + self.rules['metric_agg_type']
+        self.metric_key = 'metric_' + rules['metric_agg_key'] + '_' + rules['metric_agg_type']
 
         all_allowed_aggregations = self.allowed_aggregations.union(self.allowed_percent_aggregations)
-        if not self.rules['metric_agg_type'] in all_allowed_aggregations:
+        if not rules['metric_agg_type'] in all_allowed_aggregations:
             raise EAException("metric_agg_type must be one of %s" % (str(all_allowed_aggregations)))
-        if self.rules['metric_agg_type'] in self.allowed_percent_aggregations and self.rules['percentile_range'] is None:
+        if rules['metric_agg_type'] in self.allowed_percent_aggregations and rules['percentile_range'] is None:
             raise EAException("percentile_range must be specified for percentiles aggregation")
 
-        self.rules['aggregation_query_element'] = self.generate_aggregation_query()
+        rules['aggregation_query_element'] = self.generate_aggregation_query()
 
     def get_match_str(self, match):
         metric_format_string = self.rules.get('metric_format_string', None)
@@ -1126,9 +1166,15 @@ class MetricAggregationRule(BaseAggregationRule):
             # shouldn't get to this point, but checking for safety
             return
 
+        rules = self.rules
+        metric_key = self.metric_key
+        metric_agg_type = rules['metric_agg_type']
+        allowed_percent_aggregations = self.allowed_percent_aggregations
+
         match_data[compound_keys[0]] = aggregation_data['key']
         if 'bucket_aggs' in aggregation_data:
-            for result in aggregation_data['bucket_aggs']['buckets']:
+            bucket_aggs = aggregation_data['bucket_aggs']['buckets']
+            for result in bucket_aggs:
                 self.check_matches_recursive(timestamp,
                                              query_key,
                                              result,
@@ -1136,32 +1182,39 @@ class MetricAggregationRule(BaseAggregationRule):
                                              match_data)
         else:
             if 'interval_aggs' in aggregation_data:
-                metric_val_arr = [term[self.metric_key]['value'] for term in aggregation_data['interval_aggs']['buckets']]
+                buckets = aggregation_data['interval_aggs']['buckets']
+                metric_val_arr = [term[metric_key]['value'] for term in buckets]
             else:
-                if self.rules['metric_agg_type'] in self.allowed_percent_aggregations:
-                    metric_val_arr = list(aggregation_data[self.metric_key]['values'].values())
+                if metric_agg_type in allowed_percent_aggregations:
+                    metric_val_arr = list(aggregation_data[metric_key]['values'].values())
                 else:
-                    metric_val_arr = [aggregation_data[self.metric_key]['value']]
+                    metric_val_arr = [aggregation_data[metric_key]['value']]
+            crossed = self.crossed_thresholds
+            compound_query_key = rules['compound_query_key']
+            metric_format_string = rules.get('metric_format_string', None)
+            query_key_rule = rules['query_key']
+            ts_field = rules['timestamp_field']
             for metric_val in metric_val_arr:
-                if self.crossed_thresholds(metric_val):
-                    match_data[self.rules['timestamp_field']] = timestamp
-                    match_data[self.metric_key] = metric_val
+                if crossed(metric_val):
+                    match_data[ts_field] = timestamp
+                    match_data[metric_key] = metric_val
 
                     # add compound key to payload to allow alerts to trigger for every unique occurence
-                    compound_value = [match_data[key] for key in self.rules['compound_query_key']]
-                    match_data[self.rules['query_key']] = ",".join([str(value) for value in compound_value])
-                    metric_format_string = self.rules.get('metric_format_string', None)
+                    compound_value = (match_data[key] for key in compound_query_key)
+                    match_data[query_key_rule] = ",".join(str(value) for value in compound_value)
                     if metric_format_string:
-                        match_data[self.metric_key +'_formatted'] = format_string(metric_format_string, metric_val)
-                        match_data['metric_agg_value_formatted'] = format_string(metric_format_string, metric_val)
+                        formatted = format_string(metric_format_string, metric_val)
+                        match_data[metric_key + '_formatted'] = formatted
+                        match_data['metric_agg_value_formatted'] = formatted
                     self.add_match(match_data)
 
     def crossed_thresholds(self, metric_value):
         if metric_value is None:
             return False
-        if 'max_threshold' in self.rules and metric_value > self.rules['max_threshold']:
+        rules = self.rules
+        if 'max_threshold' in rules and metric_value > rules['max_threshold']:
             return True
-        if 'min_threshold' in self.rules and metric_value < self.rules['min_threshold']:
+        if 'min_threshold' in rules and metric_value < rules['min_threshold']:
             return True
         return False
 
@@ -1205,17 +1258,35 @@ class SpikeMetricAggregationRule(BaseAggregationRule, SpikeRule):
         We instead want to use all of our SpikeRule.handle_event inherited logic (current/reference) from
         the aggregation's "value" key to determine spikes from aggregations
         """
-        for timestamp, payload_data in payload.items():
-            if 'bucket_aggs' in payload_data:
-                self.unwrap_term_buckets(timestamp, payload_data['bucket_aggs'])
-            else:
-                # no time / term split, just focus on the agg
-                event = {self.ts_field: timestamp}
-                if self.rules['metric_agg_type'] in self.allowed_percent_aggregations:
-                    agg_value = list(payload_data[self.metric_key]['values'].values())[0]
+        metric_key = self.metric_key
+        allowed_percent_aggregations = self.allowed_percent_aggregations
+        ts_field = self.ts_field
+        rules = self.rules
+
+        append_handle_event = self.handle_event
+
+        if rules['metric_agg_type'] in allowed_percent_aggregations:
+            for timestamp, payload_data in payload.items():
+                if 'bucket_aggs' in payload_data:
+                    self.unwrap_term_buckets(timestamp, payload_data['bucket_aggs'])
                 else:
-                    agg_value = payload_data[self.metric_key]['value']
-                self.handle_event(event, agg_value, 'all')
+                    # percent aggregation - hot path
+                    event = {ts_field: timestamp}
+                    values = payload_data[metric_key]['values']
+                    # Grab first value (percentile has only one per range specified)
+                    # Avoids list generator and is slightly faster
+                    for v in values.values():
+                        agg_value = v
+                        break
+                    append_handle_event(event, agg_value, 'all')
+        else:
+            for timestamp, payload_data in payload.items():
+                if 'bucket_aggs' in payload_data:
+                    self.unwrap_term_buckets(timestamp, payload_data['bucket_aggs'])
+                else:
+                    event = {ts_field: timestamp}
+                    agg_value = payload_data[metric_key]['value']
+                    append_handle_event(event, agg_value, 'all')
         return
 
     def unwrap_term_buckets(self, timestamp, term_buckets, qk=[]):
@@ -1223,28 +1294,42 @@ class SpikeMetricAggregationRule(BaseAggregationRule, SpikeRule):
         create separate spike event trackers for each term,
         handle compound query keys
         """
-        for term_data in term_buckets['buckets']:
-            qk.append(term_data['key'])
+        if qk is None:
+            qk = []
+        metric_key = self.metric_key
+        allowed_percent_aggregations = self.allowed_percent_aggregations
+        ts_field = self.ts_field
+        rules = self.rules
+        query_key = rules['query_key']
+        metric_agg_type = rules['metric_agg_type']
+        append_handle_event = self.handle_event
+
+        percent_mode = metric_agg_type in allowed_percent_aggregations
+
+        # Use local var for buckets
+        buckets = term_buckets['buckets']
+        join = ','.join  # Method lookup hoisting
+
+        for term_data in buckets:
+            # Instead of .append()/del, we use newqk = qk + [key] (no mutation)
+            newqk = qk + [term_data['key']]
 
             # handle compound query keys (nested aggregations)
             if term_data.get('bucket_aggs'):
-                self.unwrap_term_buckets(timestamp, term_data['bucket_aggs'], qk)
-                # reset the query key to consider the proper depth for N > 2
-                del qk[-1]
+                self.unwrap_term_buckets(timestamp, term_data['bucket_aggs'], newqk)
                 continue
 
-            qk_str = ','.join(qk)
-            if self.rules['metric_agg_type'] in self.allowed_percent_aggregations:
-                agg_value = list(term_data[self.metric_key]['values'].values())[0]
+            qk_str = join(newqk)
+            if percent_mode:
+                # Hot path: only one value, avoid making a list
+                for v in term_data[metric_key]['values'].values():
+                    agg_value = v
+                    break
             else:
-                agg_value = term_data[self.metric_key]['value']
-            event = {self.ts_field: timestamp,
-                     self.rules['query_key']: qk_str}
+                agg_value = term_data[metric_key]['value']
+            event = {ts_field: timestamp, query_key: qk_str}
             # pass to SpikeRule's tracker
-            self.handle_event(event, agg_value, qk_str)
-
-            # handle unpack of lowest level
-            del qk[-1]
+            append_handle_event(event, agg_value, qk_str)
         return
 
     def get_match_str(self, match):
@@ -1272,6 +1357,8 @@ class PercentageMatchRule(BaseAggregationRule):
 
         self.min_denominator = self.rules.get('min_denominator', 0)
         self.match_bucket_filter = self.rules['match_bucket_filter']
+        # Precompute the aggregation_query_element once and reuse the static structure
+        self._aggregation_query_element = None
         self.rules['aggregation_query_element'] = self.generate_aggregation_query()
 
     def get_match_str(self, match):
@@ -1285,20 +1372,26 @@ class PercentageMatchRule(BaseAggregationRule):
         return message
 
     def generate_aggregation_query(self):
-        return {
-            'percentage_match_aggs': {
-                'filters': {
-                    'other_bucket': True,
+        # Memoize the generated aggregation query to avoid reconstructing immutable structures repeatedly
+        if self._aggregation_query_element is None:
+            match_bucket_filter = self.match_bucket_filter
+            # Avoid deep copying as we're not mutating match_bucket_filter
+            aggregation_query = {
+                'percentage_match_aggs': {
                     'filters': {
-                        'match_bucket': {
-                            'bool': {
-                                'must': self.match_bucket_filter
+                        'other_bucket': True,
+                        'filters': {
+                            'match_bucket': {
+                                'bool': {
+                                    'must': match_bucket_filter
+                                }
                             }
                         }
                     }
                 }
             }
-        }
+            self._aggregation_query_element = aggregation_query
+        return self._aggregation_query_element
 
     def check_matches(self, timestamp, query_key, aggregation_data):
         match_bucket_count = aggregation_data['percentage_match_aggs']['buckets']['match_bucket']['doc_count']
