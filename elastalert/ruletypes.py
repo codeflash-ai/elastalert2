@@ -48,7 +48,9 @@ class RuleType(object):
         if ts in event:
             event[ts] = dt_to_ts(event[ts])
 
-        self.matches.append(copy.deepcopy(event))
+        # Use local copy of deepcopy to reduce attribute lookup overhead
+        deepcopy = copy.deepcopy
+        self.matches.append(deepcopy(event))
 
     def get_match_str(self, match):
         """ Returns a string that gives more context about a match.
@@ -354,7 +356,17 @@ class EventWindow(object):
     def max(self):
         """ The maximum of the value_field in the window. """
         if len(self.data) > 0:
-            return max([x[1] for x in self.data])
+            # Avoid building intermediate lists for performance
+            it = iter(self.data)
+            try:
+                max_value = next(it)[1]
+            except StopIteration:
+                return None
+            for x in it:
+                v = x[1]
+                if v > max_value:
+                    max_value = v
+            return max_value
         else:
             return None
 
@@ -406,6 +418,12 @@ class SpikeRule(RuleType):
         self.field_value = self.rules.get('field_value')
 
         self.ref_window_filled_once = False
+
+        # Cache values for frequent rule fields (avoid repeated dict lookups)
+        self._threshold_cur = self.rules.get('threshold_cur', 0)
+        self._threshold_ref = self.rules.get('threshold_ref', 0)
+        self._spike_height = self.rules['spike_height']
+        self._spike_type = self.rules['spike_type']
 
     def add_count_data(self, data):
         """ Add count data to the rule. Data should be of the form {ts: count}. """
@@ -524,20 +542,22 @@ class SpikeRule(RuleType):
         """ Determines if an event spike or dip happening. """
         # Apply threshold limits
         if self.field_value is None and cur is not None and ref is not None:
-            if (cur < self.rules.get('threshold_cur', 0) or
-                    ref < self.rules.get('threshold_ref', 0)):
+            if (cur < self._threshold_cur or
+                    ref < self._threshold_ref):
                 return False
         elif ref is None or ref == 0 or cur is None or cur == 0:
             return False
 
-        spike_up, spike_down = False, False
-        if cur <= ref / self.rules['spike_height']:
-            spike_down = True
-        if cur >= ref * self.rules['spike_height']:
-            spike_up = True
+        # Use local variables instead of repeatedly referencing self attrs
+        spike_height = self._spike_height
+        spike_type = self._spike_type
 
-        if (self.rules['spike_type'] in ['both', 'up'] and spike_up) or \
-           (self.rules['spike_type'] in ['both', 'down'] and spike_down):
+        spike_up = cur >= ref * spike_height
+        spike_down = cur <= ref / spike_height
+
+        # Use tuple membership testing for spike_type
+        if (spike_up and spike_type in ('both', 'up')) or \
+           (spike_down and spike_type in ('both', 'down')):
             return True
         return False
 
@@ -1306,24 +1326,27 @@ class PercentageMatchRule(BaseAggregationRule):
 
         if match_bucket_count is None or other_bucket_count is None:
             return
-        else:
-            total_count = other_bucket_count + match_bucket_count
-            if total_count == 0 or total_count < self.min_denominator:
-                return
-            else:
-                match_percentage = (match_bucket_count * 1.0) / (total_count * 1.0) * 100
-                if self.percentage_violation(match_percentage):
-                    match = {self.rules['timestamp_field']: timestamp, 'percentage': match_percentage, 'denominator': total_count}
-                    percentage_format_string = self.rules.get('percentage_format_string', None)
-                    if percentage_format_string is not None:
-                        match['percentage_formatted'] = format_string(percentage_format_string, match_percentage)
-                    if query_key is not None:
-                        match = expand_string_into_dict(match, self.rules['query_key'], query_key)
-                    self.add_match(match)
+        total_count = other_bucket_count + match_bucket_count
+        if total_count == 0 or total_count < self.min_denominator:
+            return
+        match_percentage = (match_bucket_count * 1.0) / (total_count * 1.0) * 100
+        percentage_violation = self.percentage_violation
+        if percentage_violation(match_percentage):
+            # Only lookup ts_field and timestamp_field once for efficiency
+            ts_field = self.rules['timestamp_field']
+            match = {ts_field: timestamp, 'percentage': match_percentage, 'denominator': total_count}
+            percentage_format_string = self.rules.get('percentage_format_string', None)
+            if percentage_format_string is not None:
+                match['percentage_formatted'] = format_string(percentage_format_string, match_percentage)
+            if query_key is not None:
+                match = expand_string_into_dict(match, self.rules['query_key'], query_key)
+            self.add_match(match)
 
     def percentage_violation(self, match_percentage):
-        if 'max_percentage' in self.rules and match_percentage > self.rules['max_percentage']:
+        rules = self.rules
+        # Do not cache lookups of possible-mutable self.rules but optimize by local bind for hot path
+        if 'max_percentage' in rules and match_percentage > rules['max_percentage']:
             return True
-        if 'min_percentage' in self.rules and match_percentage < self.rules['min_percentage']:
+        if 'min_percentage' in rules and match_percentage < rules['min_percentage']:
             return True
         return False
