@@ -48,7 +48,8 @@ class RuleType(object):
         if ts in event:
             event[ts] = dt_to_ts(event[ts])
 
-        self.matches.append(copy.deepcopy(event))
+        # Use shallow copy for flat dictionaries for better performance
+        self.matches.append(event.copy())
 
     def get_match_str(self, match):
         """ Returns a string that gives more context about a match.
@@ -354,7 +355,17 @@ class EventWindow(object):
     def max(self):
         """ The maximum of the value_field in the window. """
         if len(self.data) > 0:
-            return max([x[1] for x in self.data])
+            # Avoid building intermediate lists for performance
+            it = iter(self.data)
+            try:
+                max_value = next(it)[1]
+            except StopIteration:
+                return None
+            for x in it:
+                v = x[1]
+                if v > max_value:
+                    max_value = v
+            return max_value
         else:
             return None
 
@@ -406,6 +417,12 @@ class SpikeRule(RuleType):
         self.field_value = self.rules.get('field_value')
 
         self.ref_window_filled_once = False
+
+        # Cache values for frequent rule fields (avoid repeated dict lookups)
+        self._threshold_cur = self.rules.get('threshold_cur', 0)
+        self._threshold_ref = self.rules.get('threshold_ref', 0)
+        self._spike_height = self.rules['spike_height']
+        self._spike_type = self.rules['spike_type']
 
     def add_count_data(self, data):
         """ Add count data to the rule. Data should be of the form {ts: count}. """
@@ -524,20 +541,22 @@ class SpikeRule(RuleType):
         """ Determines if an event spike or dip happening. """
         # Apply threshold limits
         if self.field_value is None and cur is not None and ref is not None:
-            if (cur < self.rules.get('threshold_cur', 0) or
-                    ref < self.rules.get('threshold_ref', 0)):
+            if (cur < self._threshold_cur or
+                    ref < self._threshold_ref):
                 return False
         elif ref is None or ref == 0 or cur is None or cur == 0:
             return False
 
-        spike_up, spike_down = False, False
-        if cur <= ref / self.rules['spike_height']:
-            spike_down = True
-        if cur >= ref * self.rules['spike_height']:
-            spike_up = True
+        # Use local variables instead of repeatedly referencing self attrs
+        spike_height = self._spike_height
+        spike_type = self._spike_type
 
-        if (self.rules['spike_type'] in ['both', 'up'] and spike_up) or \
-           (self.rules['spike_type'] in ['both', 'down'] and spike_down):
+        spike_up = cur >= ref * spike_height
+        spike_down = cur <= ref / spike_height
+
+        # Use tuple membership testing for spike_type
+        if (spike_up and spike_type in ('both', 'up')) or \
+           (spike_down and spike_type in ('both', 'down')):
             return True
         return False
 
@@ -1073,7 +1092,7 @@ class MetricAggregationRule(BaseAggregationRule):
         self.metric_key = 'metric_' + self.rules['metric_agg_key'] + '_' + self.rules['metric_agg_type']
 
         all_allowed_aggregations = self.allowed_aggregations.union(self.allowed_percent_aggregations)
-        if not self.rules['metric_agg_type'] in all_allowed_aggregations:
+        if self.rules['metric_agg_type'] not in all_allowed_aggregations:
             raise EAException("metric_agg_type must be one of %s" % (str(all_allowed_aggregations)))
         if self.rules['metric_agg_type'] in self.allowed_percent_aggregations and self.rules['percentile_range'] is None:
             raise EAException("percentile_range must be specified for percentiles aggregation")
@@ -1135,33 +1154,38 @@ class MetricAggregationRule(BaseAggregationRule):
                                              compound_keys[1:],
                                              match_data)
         else:
+            metric_key = self.metric_key
+            rules = self.rules
+            allowed_percent_aggregations = self.allowed_percent_aggregations
             if 'interval_aggs' in aggregation_data:
-                metric_val_arr = [term[self.metric_key]['value'] for term in aggregation_data['interval_aggs']['buckets']]
+                metric_val_arr = [term[metric_key]['value'] for term in aggregation_data['interval_aggs']['buckets']]
             else:
-                if self.rules['metric_agg_type'] in self.allowed_percent_aggregations:
-                    metric_val_arr = list(aggregation_data[self.metric_key]['values'].values())
+                if rules['metric_agg_type'] in allowed_percent_aggregations:
+                    metric_val_arr = list(aggregation_data[metric_key]['values'].values())
                 else:
-                    metric_val_arr = [aggregation_data[self.metric_key]['value']]
+                    metric_val_arr = [aggregation_data[metric_key]['value']]
             for metric_val in metric_val_arr:
                 if self.crossed_thresholds(metric_val):
-                    match_data[self.rules['timestamp_field']] = timestamp
-                    match_data[self.metric_key] = metric_val
+                    match_data[rules['timestamp_field']] = timestamp
+                    match_data[metric_key] = metric_val
 
                     # add compound key to payload to allow alerts to trigger for every unique occurence
-                    compound_value = [match_data[key] for key in self.rules['compound_query_key']]
-                    match_data[self.rules['query_key']] = ",".join([str(value) for value in compound_value])
-                    metric_format_string = self.rules.get('metric_format_string', None)
+                    compound_value = [match_data[key] for key in rules['compound_query_key']]
+                    match_data[rules['query_key']] = ",".join(map(str, compound_value))
+                    metric_format_string = rules.get('metric_format_string', None)
                     if metric_format_string:
-                        match_data[self.metric_key +'_formatted'] = format_string(metric_format_string, metric_val)
-                        match_data['metric_agg_value_formatted'] = format_string(metric_format_string, metric_val)
+                        formatted_val = format_string(metric_format_string, metric_val)
+                        match_data[metric_key +'_formatted'] = formatted_val
+                        match_data['metric_agg_value_formatted'] = formatted_val
                     self.add_match(match_data)
 
     def crossed_thresholds(self, metric_value):
         if metric_value is None:
             return False
-        if 'max_threshold' in self.rules and metric_value > self.rules['max_threshold']:
+        rules = self.rules
+        if 'max_threshold' in rules and metric_value > rules['max_threshold']:
             return True
-        if 'min_threshold' in self.rules and metric_value < self.rules['min_threshold']:
+        if 'min_threshold' in rules and metric_value < rules['min_threshold']:
             return True
         return False
 
