@@ -29,14 +29,15 @@ class TencentSMSAlerter(Alerter):
 
     def __init__(self, *args):
         super(TencentSMSAlerter, self).__init__(*args)
-        self.tencent_sms_secret_id = self.rule.get('tencent_sms_secret_id')
-        self.tencent_sms_secret_key = self.rule.get('tencent_sms_secret_key')
-        self.tencent_sms_sdk_appid = self.rule.get('tencent_sms_sdk_appid')
-        self.tencent_sms_to_number = self.rule.get('tencent_sms_to_number', [])
-        self.tencent_sms_region = self.rule.get('tencent_sms_region', 'ap-guangzhou')
-        self.tencent_sms_sign_name = self.rule.get('tencent_sms_sign_name')  # this parameter is required for Mainland China SMS.
-        self.tencent_sms_template_id = self.rule.get('tencent_sms_template_id')
-        self.tencent_sms_template_parm = self.rule.get('tencent_sms_template_parm', [])
+        rule = self.rule
+        self.tencent_sms_secret_id = rule.get('tencent_sms_secret_id')
+        self.tencent_sms_secret_key = rule.get('tencent_sms_secret_key')
+        self.tencent_sms_sdk_appid = rule.get('tencent_sms_sdk_appid')
+        self.tencent_sms_to_number = rule.get('tencent_sms_to_number', [])
+        self.tencent_sms_region = rule.get('tencent_sms_region', 'ap-guangzhou')
+        self.tencent_sms_sign_name = rule.get('tencent_sms_sign_name')
+        self.tencent_sms_template_id = rule.get('tencent_sms_template_id')
+        self.tencent_sms_template_parm = rule.get('tencent_sms_template_parm', [])
 
     # Alert is called
     def alert(self, matches):
