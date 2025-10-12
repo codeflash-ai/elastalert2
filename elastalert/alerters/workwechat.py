@@ -12,10 +12,18 @@ class WorkWechatAlerter(Alerter):
     required_options = frozenset(['work_wechat_bot_id'])
 
     def __init__(self, rule):
-        super(WorkWechatAlerter, self).__init__(rule)
-        self.work_wechat_bot_id = self.rule.get('work_wechat_bot_id', None)
-        self.work_wechat_webhook_url = f'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key={self.work_wechat_bot_id}'
-        self.work_wechat_msgtype = self.rule.get('work_wechat_msgtype', 'text')
+        super().__init__(rule)
+        work_wechat_bot_id = rule.get('work_wechat_bot_id', None)
+        work_wechat_webhook_url = f'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key={work_wechat_bot_id}'
+        work_wechat_msgtype = rule.get('work_wechat_msgtype', 'text')
+        self.work_wechat_bot_id = work_wechat_bot_id
+        self.work_wechat_webhook_url = work_wechat_webhook_url
+        self.work_wechat_msgtype = work_wechat_msgtype
+        # _info_dict reused per get_info() call to reduce dict allocation
+        self._info_dict = {
+            "type": "workwechat",
+            "work_wechat_webhook_url": work_wechat_webhook_url
+        }
     def alert(self, matches):
         title = self.create_title(matches)
         body = self.create_alert_body(matches)
@@ -55,7 +63,4 @@ class WorkWechatAlerter(Alerter):
         elastalert_logger.info("Trigger sent to workwechat")
 
     def get_info(self):
-        return {
-            "type": "workwechat",
-            "work_wechat_webhook_url": self.work_wechat_webhook_url
-        }
+        return self._info_dict
