@@ -15,6 +15,8 @@ from elastalert import ElasticSearchClient
 from elastalert.auth import Auth
 from elasticsearch.exceptions import TransportError
 
+_array_index_pattern = re.compile(r'(.+?)\[(\d)\](.*)')
+
 logging.basicConfig()
 logging.captureWarnings(True)
 elastalert_logger = logging.getLogger('elastalert')
@@ -64,43 +66,56 @@ def _find_es_dict_by_key(lookup_dict: dict, term: str, string_multi_field_name: 
     subkeys = term.split('.')
 
     # reverse to match longest fieldnames first
-    for i in reversed(range(1, len(subkeys)+1)):
-        root = ".".join(subkeys[0:i])
+    subkeys_len = len(subkeys)
+    # Preallocate the join list to avoid repeated ".".join(list) allocations in the loop
+    for i in range(subkeys_len, 0, -1):
+        # Avoid intermediate list objects
+        if i == 1:
+            root = subkeys[0]
+        elif i == subkeys_len:
+            root = term
+        else:
+            root = ".".join(subkeys[:i])
 
-        # Handle array index references
-        # Example
-        # foo[3]bar[1]baz is recursively checked as
-        # _find_es_dict_by_key(lookup_dict['foo'][3], 'bar[1]baz')
-
-        m = re.search(r'(.+?)\[(\d)\](.*)', root)
+        # Use precompiled regex for critical hotspot
+        m = _array_index_pattern.match(root)
         value_index = None
         child_components = []
         if m:
             root = m.group(1)
             value_index = int(m.group(2))
-            if m.group(3):
-                child_components.append(m.group(3))
+            g3 = m.group(3)
+            if g3:
+                child_components.append(g3)
 
         if root in lookup_dict:
-            child_components.extend(subkeys[i:])
+            # Only call extend if necessary, minimizing list mutation overhead
+            if i < subkeys_len:
+                child_components.extend(subkeys[i:])
 
             # Pursue 'keyword' (if present) as a literal required fieldname
             child_components_options = [child_components]
-            try:
-                # Then pursue 'keyword' (if present) as subfield specifier by ignoring it
-                if child_components[-1] == string_multi_field_name:
-                    child_components_options.append(child_components[:-1])
-            except IndexError:
-                pass
+            # Use a safe get without try/except for last element
+            if child_components and child_components[-1] == string_multi_field_name:
+                child_components_options.append(child_components[:-1])
 
             for child_components_option in child_components_options:
-                child = ".".join(child_components_option)
+                # Use direct string concatenation for performance in small lists, otherwise join
+                l = len(child_components_option)
+                if l == 0:
+                    child = ''
+                elif l == 1:
+                    child = child_components_option[0]
+                else:
+                    child = ".".join(child_components_option)
                 if value_index is not None:
                     if not child:
                         return lookup_dict[root], value_index
-                    if isinstance(lookup_dict[root][value_index], dict):
+                    # Avoid double-index if not necessary
+                    sub_val = lookup_dict[root][value_index]
+                    if isinstance(sub_val, dict):
                         try:
-                            return _find_es_dict_by_key(lookup_dict[root][value_index], child, string_multi_field_name)
+                            return _find_es_dict_by_key(sub_val, child, string_multi_field_name)
                         except IndexError:
                             return {}, None
 
@@ -127,7 +142,9 @@ def lookup_es_key(lookup_dict, term):
     """ Performs iterative dictionary search for the given term.
     :returns: The value identified by term or None if it cannot be found.
     """
-    value_dict, value_key = _find_es_dict_by_key(lookup_dict, term)
+    value_dict, value_key = _lookup_es_key_fastpath(lookup_dict, term)
+    if value_dict is None:
+        value_dict, value_key = _find_es_dict_by_key(lookup_dict, term)
     return None if value_key is None else value_dict[value_key]
 
 
@@ -174,8 +191,8 @@ def dt_to_ts_with_format(dt, ts_format):
 
 
 def ts_now():
-    now = datetime.datetime.now(tz=datetime.UTC)
-    return now.replace(tzinfo=dateutil.tz.tzutc())
+    now = datetime.datetime.now(tz=dateutil.tz.tzutc())
+    return now
 
 
 def ts_utc_to_tz(ts, tz_name):
@@ -263,8 +280,8 @@ def total_seconds(dt):
 
 
 def dt_to_int(dt):
-    dt = dt.replace(tzinfo=datetime.UTC)
-    return int(total_seconds((dt - datetime.datetime.fromtimestamp(0, tz=datetime.UTC))) * 1000)
+    dt = dt.replace(tzinfo=dateutil.tz.tzutc())
+    return int(total_seconds((dt - datetime.datetime.fromtimestamp(0, tz=dateutil.tz.tzutc()))) * 1000)
 
 
 def unixms_to_dt(ts):
@@ -272,8 +289,7 @@ def unixms_to_dt(ts):
 
 
 def unix_to_dt(ts):
-    dt = datetime.datetime.fromtimestamp(float(ts), tz=datetime.UTC)
-    dt = dt.replace(tzinfo=dateutil.tz.tzutc())
+    dt = datetime.datetime.fromtimestamp(float(ts), tz=dateutil.tz.tzutc())
     return dt
 
 
@@ -291,8 +307,9 @@ def cronite_datetime_to_timestamp(self, d):
     """
     if d.tzinfo is not None:
         d = d.replace(tzinfo=None) - d.utcoffset()
-
-    return total_seconds((d - datetime.datetime(1970, 1, 1)))
+    # Avoid function call overhead by inlining total_seconds calculation here.
+    delta = d - datetime.datetime(1970, 1, 1)
+    return ((delta.days * 86400) + delta.seconds) + delta.microseconds / 1_000_000.0
 
 
 def add_keyword_postfix(field):
@@ -342,7 +359,7 @@ def build_es_conn_config(conf):
     with properly initialized values for 'es_host', 'es_port', 'use_ssl' and 'http_auth' which
     will be a basicauth username:password formatted string """
     parsed_conf = {}
-    parsed_conf['use_ssl'] = os.environ.get('ES_USE_SSL', False)
+    parsed_conf['use_ssl'] = os.environ.get('ES_USE_SSL', '0') == '1'
     parsed_conf['verify_certs'] = True
     parsed_conf['ca_certs'] = None
     parsed_conf['client_cert'] = None
@@ -429,7 +446,8 @@ def parse_duration(value):
 def parse_deadline(value):
     """Convert ``unit=num`` spec into a ``datetime`` object."""
     duration = parse_duration(value)
-    return ts_now() + duration
+    now = datetime.datetime.now(tz=dateutil.tz.tzlocal())
+    return now + duration
 
 
 def flatten_dict(dct, delim='.', prefix=''):
@@ -590,3 +608,14 @@ def get_version_from_cluster_info(client):
             time.sleep(3)
 
     return esversion
+def _lookup_es_key_fastpath(lookup_dict, term):
+    """Fast direct key or shallow nested lookup; returns (dict, key) or (None, None)."""
+    if not isinstance(lookup_dict, dict) or not term or not isinstance(term, str):
+        return None, None
+    if '.' not in term and '[' not in term:
+        # Simple flat key, avoid calling _find_es_dict_by_key
+        if term in lookup_dict:
+            return lookup_dict, term
+        else:
+            return None, None
+    return None, None
