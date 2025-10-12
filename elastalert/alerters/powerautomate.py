@@ -33,11 +33,14 @@ class MsPowerAutomateAlerter(Alerter):
 
     def populate_facts(self, matches):
         alert_facts = []
+        alert_facts_append = alert_facts.append
+        copy_copy = copy.copy
+        match0 = matches[0]
         for arg in self.ms_power_automate_alert_facts:
-            arg = copy.copy(arg)
-            matched_value = lookup_es_key(matches[0], arg['value'])
+            arg = copy_copy(arg)
+            matched_value = lookup_es_key(match0, arg['value'])
             arg['value'] = matched_value if matched_value is not None else arg['value']
-            alert_facts.append(arg)
+            alert_facts_append(arg)
         return alert_facts
 
     def alert(self, matches):
