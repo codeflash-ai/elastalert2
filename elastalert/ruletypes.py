@@ -354,7 +354,17 @@ class EventWindow(object):
     def max(self):
         """ The maximum of the value_field in the window. """
         if len(self.data) > 0:
-            return max([x[1] for x in self.data])
+            # Avoid building intermediate lists for performance
+            it = iter(self.data)
+            try:
+                max_value = next(it)[1]
+            except StopIteration:
+                return None
+            for x in it:
+                v = x[1]
+                if v > max_value:
+                    max_value = v
+            return max_value
         else:
             return None
 
@@ -406,6 +416,12 @@ class SpikeRule(RuleType):
         self.field_value = self.rules.get('field_value')
 
         self.ref_window_filled_once = False
+
+        # Cache values for frequent rule fields (avoid repeated dict lookups)
+        self._threshold_cur = self.rules.get('threshold_cur', 0)
+        self._threshold_ref = self.rules.get('threshold_ref', 0)
+        self._spike_height = self.rules['spike_height']
+        self._spike_type = self.rules['spike_type']
 
     def add_count_data(self, data):
         """ Add count data to the rule. Data should be of the form {ts: count}. """
@@ -524,20 +540,22 @@ class SpikeRule(RuleType):
         """ Determines if an event spike or dip happening. """
         # Apply threshold limits
         if self.field_value is None and cur is not None and ref is not None:
-            if (cur < self.rules.get('threshold_cur', 0) or
-                    ref < self.rules.get('threshold_ref', 0)):
+            if (cur < self._threshold_cur or
+                    ref < self._threshold_ref):
                 return False
         elif ref is None or ref == 0 or cur is None or cur == 0:
             return False
 
-        spike_up, spike_down = False, False
-        if cur <= ref / self.rules['spike_height']:
-            spike_down = True
-        if cur >= ref * self.rules['spike_height']:
-            spike_up = True
+        # Use local variables instead of repeatedly referencing self attrs
+        spike_height = self._spike_height
+        spike_type = self._spike_type
 
-        if (self.rules['spike_type'] in ['both', 'up'] and spike_up) or \
-           (self.rules['spike_type'] in ['both', 'down'] and spike_down):
+        spike_up = cur >= ref * spike_height
+        spike_down = cur <= ref / spike_height
+
+        # Use tuple membership testing for spike_type
+        if (spike_up and spike_type in ('both', 'up')) or \
+           (spike_down and spike_type in ('both', 'down')):
             return True
         return False
 
@@ -992,8 +1010,14 @@ class CardinalityRule(RuleType):
     def get_match_str(self, match):
         lt = self.rules.get('use_local_time')
         fmt = self.rules.get('custom_pretty_ts_format')
-        starttime = pretty_ts(dt_to_ts(ts_to_dt(lookup_es_key(match, self.ts_field)) - self.rules['timeframe']), lt, fmt)
-        endtime = pretty_ts(lookup_es_key(match, self.ts_field), lt, fmt)
+        # Optimization: compute ts_val once, to avoid double field/key lookup and double parse
+        ts_val = lookup_es_key(match, self.ts_field)
+        dt_obj = ts_to_dt(ts_val)
+        timeframe = self.rules['timeframe']
+        start_dt = dt_obj - timeframe
+        # Avoid multiple conversions of the same timestamp
+        starttime = pretty_ts(dt_to_ts(start_dt), lt, fmt)
+        endtime = pretty_ts(ts_val, lt, fmt)
         if 'max_cardinality' in self.rules:
             message = ('A maximum of %d unique %s(s) occurred since last alert or between %s and %s\n\n' % (self.rules['max_cardinality'],
                                                                                                             self.rules['cardinality_field'],
