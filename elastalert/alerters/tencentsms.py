@@ -133,12 +133,9 @@ class TencentSMSAlerter(Alerter):
 
     def create_template_parm(self, matches):
         esData = matches[0]
-        templateParam = []
-        if len(self.tencent_sms_template_parm) == 0:
+        if not self.tencent_sms_template_parm:
             return []
-        for key in self.tencent_sms_template_parm:
-            templateParam.append(resolve_pointer(esData, key))
-        return templateParam
+        return [resolve_pointer(esData, key) for key in self.tencent_sms_template_parm]
 
     # get_info is called after an alert is sent to get data that is written back
     # to Elasticsearch in the field "alert_info"
